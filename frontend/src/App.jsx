@@ -1002,15 +1002,14 @@ export default function App() {
                         <span>Cluster Topology ({clusterNodes.length} Nodes)</span>
                       </div>
                       <button
-                        className="admin-fill-btn"
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem' }}
+                        className="btn-add-node"
                         onClick={() => {
                           setGeneratedPackage(null);
                           setNewNodeName('');
                           setShowAddNodeModal(true);
                         }}
                       >
-                        <PlusCircle size={14} />
+                        <PlusCircle size={15} />
                         <span>Add Worker Node</span>
                       </button>
                     </div>
@@ -1503,8 +1502,23 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div style={{ padding: '0.8rem 1rem', background: 'rgba(6, 182, 212, 0.08)', borderRadius: '8px', border: '1px solid rgba(6, 182, 212, 0.2)', fontSize: '0.8rem', color: '#67e8f9', marginTop: '1rem', lineHeight: 1.4 }}>
-                      💡 <strong>Windows Auto-Install Mechanism:</strong> On Windows, the script uses Windows' built-in <code>winget</code> and portable embedded Python to install missing dependencies silently without prompting the user.
+                    {/* Dynamic OS Auto-Install Explanation */}
+                    <div className="os-mechanism-banner">
+                      {newNodeOS === 'Windows' && (
+                        <div>
+                          💡 <strong>Windows Auto-Install Mechanism:</strong> The script checks for Python via PowerShell. If missing, it installs Python 3.11 silently in the background using Windows' built-in <code>winget</code>, or automatically unpacks a zero-install portable Python runtime without requiring administrator prompts.
+                        </div>
+                      )}
+                      {newNodeOS === 'macOS' && (
+                        <div>
+                          🍎 <strong>macOS Auto-Install Mechanism:</strong> The bash script verifies the local environment using <code>which python3</code>. If not found, it downloads a lightweight standalone universal Python binary directly from the official Python builds or triggers headless <code>brew install python@3.11</code> with zero user interaction.
+                        </div>
+                      )}
+                      {newNodeOS === 'Linux / Ubuntu' && (
+                        <div>
+                          🐧 <strong>Linux / Ubuntu Auto-Install Mechanism:</strong> The installer verifies Python & GCC via terminal. If missing, it runs a silent non-interactive <code>apt-get install -y python3 python3-pip</code> (or <code>dnf/yum</code> on RHEL/CentOS), configures permissions, and launches the worker daemon as a background service.
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', justifyContent: 'flex-end' }}>
