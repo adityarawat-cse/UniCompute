@@ -799,6 +799,46 @@
   color: #fff;
 }
 
+/* Add Worker Node Button (Eye-catching blue gradient with glow) */
+.btn-add-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.95rem;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2563eb, #0284c7);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  transition: all 0.25s ease;
+}
+
+.btn-add-node:hover {
+  background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
+}
+
+.btn-add-node:active {
+  transform: translateY(0);
+}
+
+/* Dynamic OS Explanation Banner */
+.os-mechanism-banner {
+  padding: 0.85rem 1.1rem;
+  background: rgba(6, 182, 212, 0.08);
+  border-radius: 10px;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  font-size: 0.82rem;
+  color: #67e8f9;
+  margin-top: 1.1rem;
+  line-height: 1.45;
+  animation: fadeIn 0.3s ease;
+}
+
 /* Node Action Buttons (Break & Delete) */
 .node-action-btn {
   display: flex;
