@@ -132,6 +132,9 @@ export default function App() {
     priority: 3,
     schedulingAlgorithm: 'FCFS'
   });
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+
   // Cluster Nodes state (persisted)
   const [clusterNodes, setClusterNodes] = useState(() => {
     const saved = localStorage.getItem('unicompute_nodes');
