@@ -34,7 +34,17 @@ import {
   BarChart3,
   Users,
   Sliders,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  FileCode,
+  FolderArchive,
+  Trash2,
+  Pause,
+  Play,
+  Download,
+  Laptop,
+  Copy,
+  Power
 } from 'lucide-react';
 import './App.css';
 
@@ -122,7 +132,33 @@ export default function App() {
     priority: 3,
     schedulingAlgorithm: 'FCFS'
   });
-  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+  // Cluster Nodes state (persisted)
+  const [clusterNodes, setClusterNodes] = useState(() => {
+    const saved = localStorage.getItem('unicompute_nodes');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // fallback
+      }
+    }
+    return [
+      { id: 'node-1', name: 'Node-CSE-Lab-01', cores: 16, memoryGb: 64, os: 'Linux / Ubuntu', status: 'Available', token: 'uc_tok_8492' },
+      { id: 'node-2', name: 'Node-CSE-Lab-02', cores: 8, memoryGb: 32, os: 'Windows 11', status: 'Available', token: 'uc_tok_3910' },
+      { id: 'node-3', name: 'Node-Master-Orchestrator', cores: 8, memoryGb: 16, os: 'macOS (Host)', status: 'Active (Master)', token: 'master_token' }
+    ];
+  });
+
+  // Modal state for adding a worker node
+  const [showAddNodeModal, setShowAddNodeModal] = useState(false);
+  const [newNodeName, setNewNodeName] = useState('');
+  const [newNodeOS, setNewNodeOS] = useState('Windows');
+  const [generatedPackage, setGeneratedPackage] = useState(null);
+
+  // Sync nodes to localStorage
+  useEffect(() => {
+    localStorage.setItem('unicompute_nodes', JSON.stringify(clusterNodes));
+  }, [clusterNodes]);
 
   // Sync users
   useEffect(() => {
@@ -397,6 +433,78 @@ export default function App() {
       return u;
     });
     setUsers(updated);
+  };
+
+  // Admin: Add a new node & generate installation payload
+  const handleCreateNode = (e) => {
+    e.preventDefault();
+    if (!newNodeName.trim()) return;
+
+    const token = 'uc_tok_' + Math.random().toString(36).substring(2, 9);
+    const newNode = {
+      id: 'node-' + Date.now(),
+      name: newNodeName.trim(),
+      cores: 8,
+      memoryGb: 16,
+      os: newNodeOS,
+      status: 'Available',
+      token: token
+    };
+
+    setClusterNodes([...clusterNodes, newNode]);
+
+    // Generate easy one-line auto-installer command based on OS
+    let installCommand = '';
+    if (newNodeOS === 'Windows') {
+      installCommand = `powershell -Command "Invoke-WebRequest -Uri 'http://${window.location.hostname}:8080/downloads/unicompute-worker.zip' -OutFile 'worker.zip'; Expand-Archive 'worker.zip' -DestinationPath 'unicompute-worker'; .\\unicompute-worker\\start.bat -Token '${token}' -Node '${newNode.name}'"`;
+    } else {
+      installCommand = `curl -fsSL http://${window.location.hostname}:8080/downloads/install-worker.sh | bash -s -- --token "${token}" --name "${newNode.name}"`;
+    }
+
+    setGeneratedPackage({
+      node: newNode,
+      command: installCommand,
+      token: token
+    });
+
+    setFeedback({
+      type: 'success',
+      message: `Node "${newNode.name}" created! Share the installation package/command with the computer.`
+    });
+  };
+
+  // Admin: Toggle break / pause on node (so it can be used for personal lab work without receiving jobs)
+  const handleToggleNodeBreak = (nodeId) => {
+    const updated = clusterNodes.map(n => {
+      if (n.id === nodeId) {
+        const newStatus = n.status === 'On Break' ? 'Available' : 'On Break';
+        return { ...n, status: newStatus };
+      }
+      return n;
+    });
+    setClusterNodes(updated);
+    const target = clusterNodes.find(n => n.id === nodeId);
+    const willBeOnBreak = target?.status !== 'On Break';
+    setFeedback({
+      type: 'info',
+      message: willBeOnBreak
+        ? `Node "${target?.name}" placed on break. It is temporarily freed for local tasks and will not receive cluster jobs.`
+        : `Node "${target?.name}" resumed and is now active for cluster workloads.`
+    });
+  };
+
+  // Admin: Remove / Evict node permanently
+  const handleRemoveNode = (nodeId) => {
+    const target = clusterNodes.find(n => n.id === nodeId);
+    if (target?.id === 'node-3') {
+      setFeedback({ type: 'error', message: 'Cannot remove the Master Orchestrator.' });
+      return;
+    }
+    setClusterNodes(clusterNodes.filter(n => n.id !== nodeId));
+    setFeedback({
+      type: 'info',
+      message: `Node "${target?.name}" removed from the cluster.`
+    });
   };
 
   const handleLogout = () => {
@@ -738,59 +846,113 @@ export default function App() {
             <div>
               {/* Metric Stats Cards */}
               <div className="metrics-grid">
-                <div className="glass-panel metric-card">
-                  <div className="metric-icon-box metric-icon-blue">
-                    <Activity size={24} />
-                  </div>
-                  <div>
-                    <div className="metric-info-label">Backend API Status</div>
-                    <div className="metric-info-val" style={{ fontSize: '1.15rem' }}>{backendStatus}</div>
-                    <div className="metric-info-sub">Port 8080 Active</div>
-                  </div>
-                </div>
+                {isAdmin ? (
+                  <>
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-blue">
+                        <Activity size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Backend API Status</div>
+                        <div className="metric-info-val" style={{ fontSize: '1.15rem' }}>{backendStatus}</div>
+                        <div className="metric-info-sub">Port 8080 Active</div>
+                      </div>
+                    </div>
 
-                <div className="glass-panel metric-card">
-                  <div className="metric-icon-box metric-icon-emerald">
-                    <Cpu size={24} />
-                  </div>
-                  <div>
-                    <div className="metric-info-label">Cluster Workers</div>
-                    <div className="metric-info-val">4 Nodes</div>
-                    <div className="metric-info-sub">&bull; Gossip Protocol Ready</div>
-                  </div>
-                </div>
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-emerald">
+                        <Cpu size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Cluster Workers</div>
+                        <div className="metric-info-val">4 Nodes</div>
+                        <div className="metric-info-sub">&bull; Gossip Protocol Ready</div>
+                      </div>
+                    </div>
 
-                <div className="glass-panel metric-card">
-                  <div className="metric-icon-box metric-icon-amber">
-                    <Layers size={24} />
-                  </div>
-                  <div>
-                    <div className="metric-info-label">{isAdmin ? 'Total Queue Jobs' : 'My Active Jobs'}</div>
-                    <div className="metric-info-val">{userJobs.length} Jobs</div>
-                    <div className="metric-info-sub">Chronologically Ordered</div>
-                  </div>
-                </div>
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-amber">
+                        <Layers size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Total Cluster Queue</div>
+                        <div className="metric-info-val">{allBackendJobs.length} Jobs</div>
+                        <div className="metric-info-sub">All Student Workloads</div>
+                      </div>
+                    </div>
 
-                <div className="glass-panel metric-card">
-                  <div className="metric-icon-box metric-icon-cyan">
-                    <Clock size={24} />
-                  </div>
-                  <div>
-                    <div className="metric-info-label">{isAdmin ? 'Registered Students' : 'Quota Health'}</div>
-                    <div className="metric-info-val">{isAdmin ? `${users.length} Users` : `${quotaRemaining}s Left`}</div>
-                    <div className="metric-info-sub">{isAdmin ? 'Admin Governance' : 'Auto Guardrail Active'}</div>
-                  </div>
-                </div>
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-cyan">
+                        <Clock size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Registered Students</div>
+                        <div className="metric-info-val">{users.length} Users</div>
+                        <div className="metric-info-sub">Admin Governance</div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-amber">
+                        <Layers size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">My Active Jobs</div>
+                        <div className="metric-info-val">{userJobs.length} Jobs</div>
+                        <div className="metric-info-sub">Chronologically Ordered</div>
+                      </div>
+                    </div>
+
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-blue">
+                        <Clock size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Quota Remaining</div>
+                        <div className="metric-info-val" style={{ color: quotaRemaining < 60 ? 'var(--accent-rose)' : '#fff' }}>
+                          {quotaRemaining}s
+                        </div>
+                        <div className="metric-info-sub">Out of {quotaTotal}s Allocated</div>
+                      </div>
+                    </div>
+
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-emerald">
+                        <Cpu size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Max CPU Allowed</div>
+                        <div className="metric-info-val">16 Cores</div>
+                        <div className="metric-info-sub">Per Compute Request</div>
+                      </div>
+                    </div>
+
+                    <div className="glass-panel metric-card">
+                      <div className="metric-icon-box metric-icon-cyan">
+                        <Shield size={24} />
+                      </div>
+                      <div>
+                        <div className="metric-info-label">Submission Safety</div>
+                        <div className="metric-info-val" style={{ fontSize: '1.15rem', color: quotaRemaining === 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
+                          {quotaRemaining === 0 ? 'Exhausted' : 'Quota Guarded'}
+                        </div>
+                        <div className="metric-info-sub">Pre-Submission Validation</div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* 2-Column Overview */}
-              <div className="dash-layout-grid">
+              {/* Overview Layout (2-Column for Admin with Cluster Topology, 1-Column full width for Student) */}
+              <div className={isAdmin ? 'dash-layout-grid' : 'dash-student-grid'}>
                 {/* Jobs Panel */}
                 <div className="glass-panel">
                   <div className="panel-header">
                     <div className="panel-title">
                       <Terminal size={18} />
-                      <span>{isAdmin ? 'All Submitted Jobs (Master Queue)' : 'My Job History & Queue'}</span>
+                      <span>{isAdmin ? 'All Submitted Jobs (Master Queue)' : 'My Submitted Jobs & Queue History'}</span>
                     </div>
                     <button
                       className="quota-adjust-btn"
@@ -831,49 +993,89 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Topology & System Status */}
-                <div className="glass-panel">
-                  <div className="panel-header">
-                    <div className="panel-title">
-                      <Server size={18} />
-                      <span>Cluster Topology</span>
+                {/* Topology & System Status (ADMIN ONLY) */}
+                {isAdmin && (
+                  <div className="glass-panel">
+                    <div className="panel-header">
+                      <div className="panel-title">
+                        <Server size={18} />
+                        <span>Cluster Topology ({clusterNodes.length} Nodes)</span>
+                      </div>
+                      <button
+                        className="admin-fill-btn"
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem' }}
+                        onClick={() => {
+                          setGeneratedPackage(null);
+                          setNewNodeName('');
+                          setShowAddNodeModal(true);
+                        }}
+                      >
+                        <PlusCircle size={14} />
+                        <span>Add Worker Node</span>
+                      </button>
+                    </div>
+                    <div className="panel-body">
+                      {clusterNodes.map((node) => {
+                        const isOnBreak = node.status === 'On Break';
+                        const isMaster = node.id === 'node-3';
+
+                        return (
+                          <div key={node.id} className="node-card" style={{ opacity: isOnBreak ? 0.75 : 1 }}>
+                            <div>
+                              <div className="node-name">
+                                <span
+                                  className="nav-live-dot"
+                                  style={{
+                                    backgroundColor: isOnBreak ? 'var(--accent-amber)' : 'var(--accent-emerald)',
+                                    boxShadow: isOnBreak ? '0 0 8px var(--accent-amber)' : '0 0 8px var(--accent-emerald)'
+                                  }}
+                                />
+                                <span>{node.name}</span>
+                                {isOnBreak && (
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', marginLeft: '0.3rem' }}>(Free for Local Use)</span>
+                                )}
+                              </div>
+                              <div className="node-specs">
+                                {node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <span className={isOnBreak ? 'status-badge-queued' : 'status-badge-online'}>
+                                {node.status}
+                              </span>
+
+                              {/* Break / Resume Button */}
+                              {!isMaster && (
+                                <button
+                                  type="button"
+                                  className="node-action-btn"
+                                  onClick={() => handleToggleNodeBreak(node.id)}
+                                  title={isOnBreak ? 'Resume Node for Cluster Workloads' : 'Take Break (Free machine for local lab tasks)'}
+                                >
+                                  {isOnBreak ? <Play size={14} color="var(--accent-emerald)" /> : <Pause size={14} color="var(--accent-amber)" />}
+                                  <span>{isOnBreak ? 'Resume' : 'Break'}</span>
+                                </button>
+                              )}
+
+                              {/* Remove Node Button */}
+                              {!isMaster && (
+                                <button
+                                  type="button"
+                                  className="node-action-btn delete"
+                                  onClick={() => handleRemoveNode(node.id)}
+                                  title="Permanently remove node from cluster"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className="panel-body">
-                    <div className="node-card">
-                      <div>
-                        <div className="node-name">
-                          <span className="nav-live-dot" />
-                          <span>Node-CSE-Lab-01</span>
-                        </div>
-                        <div className="node-specs">16 Cores &bull; 64 GB RAM</div>
-                      </div>
-                      <span className="status-badge-online">Available</span>
-                    </div>
-
-                    <div className="node-card">
-                      <div>
-                        <div className="node-name">
-                          <span className="nav-live-dot" />
-                          <span>Node-CSE-Lab-02</span>
-                        </div>
-                        <div className="node-specs">8 Cores &bull; 32 GB RAM</div>
-                      </div>
-                      <span className="status-badge-online">Available</span>
-                    </div>
-
-                    <div className="node-card">
-                      <div>
-                        <div className="node-name">
-                          <span className="nav-live-dot" />
-                          <span>Node-Master-Orchestrator</span>
-                        </div>
-                        <div className="node-specs">Spring Boot 4 API Gateway</div>
-                      </div>
-                      <span className="status-badge-online">Active</span>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -1021,6 +1223,68 @@ export default function App() {
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                    <label className="form-label">
+                      <span>Compute Workload & Script Upload</span>
+                      <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>Accepts .py, .java, .zip, .tar, folders, binaries</span>
+                    </label>
+
+                    {/* File Dropzone */}
+                    <div className="upload-dropzone">
+                      <input
+                        type="file"
+                        id="job-file-input"
+                        multiple
+                        className="file-input-hidden"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          setUploadedFiles((prev) => [...prev, ...files]);
+                        }}
+                      />
+                      <label htmlFor="job-file-input" className="dropzone-label">
+                        <Upload size={30} color="var(--accent-cyan)" />
+                        <div style={{ marginTop: '0.5rem', fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>
+                          Click to browse or drag & drop files / folders / archives
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
+                          Upload single scripts, project packages, datasets, or full <code>.zip</code> bundles
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* Uploaded Files List */}
+                    {uploadedFiles.length > 0 && (
+                      <div className="uploaded-files-container">
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>
+                          Attached Workload Files ({uploadedFiles.length}):
+                        </div>
+                        <div className="uploaded-files-list">
+                          {uploadedFiles.map((file, idx) => (
+                            <div key={idx} className="uploaded-file-item">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {file.name.endsWith('.zip') || file.name.endsWith('.tar.gz') ? (
+                                  <FolderArchive size={16} color="var(--accent-amber)" />
+                                ) : (
+                                  <FileCode size={16} color="var(--accent-cyan)" />
+                                )}
+                                <span className="file-item-name">{file.name}</span>
+                                <span className="file-item-size">({(file.size / 1024).toFixed(1)} KB)</span>
+                              </div>
+                              <button
+                                type="button"
+                                className="file-remove-btn"
+                                onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
+                                title="Remove file"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
                     <label className="form-label">Priority (1 = Low, 5 = Urgent High)</label>
                     <div className="input-icon-wrapper">
                       <Shield className="input-icon" size={18} />
@@ -1059,7 +1323,15 @@ export default function App() {
                   style={{ marginTop: '1.5rem' }}
                 >
                   <PlusCircle size={18} />
-                  <span>{isSubmittingJob ? 'Submitting to Queue...' : wouldExceedQuota ? 'Blocked: Quota Exceeded' : 'Dispatch Job to UniCompute'}</span>
+                  <span>
+                    {isSubmittingJob
+                      ? 'Submitting to Queue...'
+                      : wouldExceedQuota
+                      ? 'Blocked: Quota Exceeded'
+                      : uploadedFiles.length > 0
+                      ? `Dispatch Job & Package (${uploadedFiles.length} files)`
+                      : 'Dispatch Job to UniCompute'}
+                  </span>
                 </button>
               </form>
             </div>
@@ -1174,6 +1446,149 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+          {/* ================= MODAL: ADD WORKER NODE (ADMIN ONLY) ================= */}
+          {showAddNodeModal && (
+            <div className="modal-backdrop">
+              <div className="glass-panel modal-card animate-fade-in">
+                <div className="modal-header">
+                  <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Laptop size={20} color="var(--accent-cyan)" />
+                    <span>Onboard New Cluster Worker Node</span>
+                  </h3>
+                  <button
+                    className="modal-close-btn"
+                    onClick={() => setShowAddNodeModal(false)}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                {!generatedPackage ? (
+                  <form onSubmit={handleCreateNode} style={{ marginTop: '1rem' }}>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                      Name this machine and select its Operating System. UniCompute will prepare an automated <strong>Zero-Config Self-Installing</strong> package that auto-checks requirements, downloads any missing runtimes (Python/Java), and registers itself into this dashboard.
+                    </p>
+
+                    <div className="form-group">
+                      <label className="form-label">Node / Machine Name</label>
+                      <div className="input-icon-wrapper">
+                        <Laptop className="input-icon" size={18} />
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. Lab-3-PC-12 or Friends-Gaming-Rig"
+                          value={newNodeName}
+                          onChange={(e) => setNewNodeName(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Worker Operating System</label>
+                      <div className="input-icon-wrapper">
+                        <Terminal className="input-icon" size={18} />
+                        <select
+                          className="form-select"
+                          value={newNodeOS}
+                          onChange={(e) => setNewNodeOS(e.target.value)}
+                        >
+                          <option value="Windows">Windows 10 / 11 (PowerShell & Winget auto-installer)</option>
+                          <option value="macOS">macOS (Homebrew / Portable Python)</option>
+                          <option value="Linux / Ubuntu">Linux / Ubuntu (APT / Bash installer)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '0.8rem 1rem', background: 'rgba(6, 182, 212, 0.08)', borderRadius: '8px', border: '1px solid rgba(6, 182, 212, 0.2)', fontSize: '0.8rem', color: '#67e8f9', marginTop: '1rem', lineHeight: 1.4 }}>
+                      💡 <strong>Windows Auto-Install Mechanism:</strong> On Windows, the script uses Windows' built-in <code>winget</code> and portable embedded Python to install missing dependencies silently without prompting the user.
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="btn-logout"
+                        style={{ color: 'var(--text-muted)', borderColor: 'var(--border-subtle)', background: 'transparent' }}
+                        onClick={() => setShowAddNodeModal(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button type="submit" className="btn-submit-academic" style={{ width: 'auto', padding: '0.65rem 1.4rem' }}>
+                        <PlusCircle size={16} />
+                        <span>Generate Node Package</span>
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  /* Generated Package details */
+                  <div style={{ marginTop: '1rem' }}>
+                    <div className="form-feedback success" style={{ marginBottom: '1.25rem' }}>
+                      <CheckCircle2 size={18} />
+                      <span>Node <strong>{generatedPackage.node.name}</strong> registered! Share the one-line command or ZIP package below.</span>
+                    </div>
+
+                    <div style={{ marginBottom: '1.25rem' }}>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'block' }}>
+                        Option 1: One-Line Terminal Command (Recommended - Zero Installation)
+                      </label>
+                      <div className="code-copy-box">
+                        <code>{generatedPackage.command}</code>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          onClick={() => {
+                            navigator.clipboard.writeText(generatedPackage.command);
+                            setFeedback({ type: 'success', message: 'Install command copied to clipboard!' });
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}
+                        >
+                          <Copy size={13} />
+                          <span>Copy</span>
+                        </button>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.3rem', display: 'block' }}>
+                        Paste this into {generatedPackage.node.os === 'Windows' ? 'PowerShell (Run as Admin)' : 'Terminal'}. It downloads dependencies, performs pre-flight checks, and connects automatically.
+                      </span>
+                    </div>
+
+                    <div style={{ marginBottom: '1.25rem' }}>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'block' }}>
+                        Option 2: Standalone Portable ZIP
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: 'rgba(10, 14, 23, 0.6)', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
+                        <div>
+                          <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#fff' }}>unicompute-worker-{generatedPackage.node.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.zip</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Pre-configured with Node Token: <code>{generatedPackage.token}</code></div>
+                        </div>
+                        <button
+                          type="button"
+                          className="admin-fill-btn"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                          onClick={() => {
+                            setFeedback({ type: 'info', message: 'Downloading pre-bundled portable worker archive...' });
+                          }}
+                        >
+                          <Download size={14} />
+                          <span>Download ZIP</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn-submit-academic"
+                        style={{ width: 'auto', padding: '0.65rem 1.5rem' }}
+                        onClick={() => setShowAddNodeModal(false)}
+                      >
+                        Done & Close
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
