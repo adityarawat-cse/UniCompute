@@ -1116,6 +1116,35 @@
   color: #0369a1;
 }
 
+/* ---- Auth Page (Login / Register) light overrides ---- */
+[data-theme="light"] .auth-page-wrapper {
+  background: linear-gradient(160deg, #f5f7fb 0%, #e8edf6 100%);
+}
+
+[data-theme="light"] .auth-page-wrapper .glass-panel {
+  background: #ffffff;
+  border: 1px solid #e5eaf2;
+  box-shadow: 0 8px 32px rgba(37, 99, 235, 0.08);
+  backdrop-filter: none;
+}
+
+[data-theme="light"] .auth-desc {
+  color: #64748b;
+}
+
+[data-theme="light"] .btn-submit-academic:disabled {
+  background: #cbd5e1;
+  color: #94a3b8;
+}
+
+[data-theme="light"] .input-pw-toggle {
+  color: #64748b;
+}
+
+[data-theme="light"] .input-pw-toggle:hover {
+  color: #2563eb;
+}
+
 [data-theme="light"] .dash-welcome-title {
   color: var(--text-main);
 }
