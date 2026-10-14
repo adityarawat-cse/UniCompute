@@ -44,7 +44,9 @@ import {
   Download,
   Laptop,
   Copy,
-  Power
+  Power,
+  Sun,
+  Moon
 } from 'lucide-react';
 import './App.css';
 
@@ -109,6 +111,18 @@ export default function App() {
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPwd, setShowRegPwd] = useState(false);
+
+  // Theme state ('dark' | 'light')
+  const [theme, setTheme] = useState(() => localStorage.getItem('unicompute_theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('unicompute_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   // Active navigation tab for student / admin
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'submit' | 'history' | 'users'
@@ -549,9 +563,34 @@ export default function App() {
           </div>
         </div>
 
-        <div className="nav-academic-tag">
-          <span className="nav-live-dot" />
-          <span>B.Tech CSE Capstone &bull; Decentralized Engine</span>
+        <div className="nav-academic-actions">
+          <div className="nav-academic-tag">
+            <span className="nav-live-dot" />
+            <span>B.Tech CSE Capstone &bull; Decentralized Engine</span>
+          </div>
+
+          {!currentUser && (
+            <div className="theme-toggle-row">
+              <span className="theme-mode-text">{theme === 'light' ? 'White' : 'Dark'}</span>
+              <button
+                id="nav-theme-toggle-switch"
+                type="button"
+                role="switch"
+                aria-checked={theme === 'light'}
+                className={`theme-toggle-switch ${theme === 'light' ? 'light' : 'dark'}`}
+                onClick={toggleTheme}
+                title={`Switch to ${theme === 'light' ? 'Dark' : 'White'} Mode`}
+              >
+                <span className="theme-toggle-slider">
+                  {theme === 'light' ? (
+                    <Sun size={12} className="theme-switch-icon sun" />
+                  ) : (
+                    <Moon size={12} className="theme-switch-icon moon" />
+                  )}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -745,10 +784,38 @@ export default function App() {
                 </div>
               </div>
 
-              <button id="btn-logout" className="btn-logout" onClick={handleLogout}>
-                <LogOut size={16} />
-                <span>Sign Out</span>
-              </button>
+              <div className="dash-user-actions-col">
+                <button id="btn-logout" className="btn-logout" onClick={handleLogout}>
+                  <LogOut size={16} />
+                  <span>Sign Out</span>
+                </button>
+
+                <div className="theme-toggle-row">
+                  {theme === 'light' ? (
+                    <Sun size={11} style={{ color: 'var(--accent-amber)' }} />
+                  ) : (
+                    <Moon size={11} style={{ color: '#93c5fd' }} />
+                  )}
+                  <span className="theme-mode-text">{theme === 'light' ? 'White Mode' : 'Dark Mode'}</span>
+                  <button
+                    id="dash-theme-toggle-switch"
+                    type="button"
+                    role="switch"
+                    aria-checked={theme === 'light'}
+                    className={`theme-toggle-switch ${theme === 'light' ? 'light' : 'dark'}`}
+                    onClick={toggleTheme}
+                    title={`Switch to ${theme === 'light' ? 'Dark' : 'White'} Mode`}
+                  >
+                    <span className="theme-toggle-slider">
+                      {theme === 'light' ? (
+                        <Sun size={12} className="theme-switch-icon sun" />
+                      ) : (
+                        <Moon size={12} className="theme-switch-icon moon" />
+                      )}
+                    </span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -914,7 +981,7 @@ export default function App() {
                       </div>
                       <div>
                         <div className="metric-info-label">Quota Remaining</div>
-                        <div className="metric-info-val" style={{ color: quotaRemaining < 60 ? 'var(--accent-rose)' : '#fff' }}>
+                        <div className="metric-info-val" style={{ color: quotaRemaining < 60 ? 'var(--accent-rose)' : 'var(--text-main)' }}>
                           {quotaRemaining}s
                         </div>
                         <div className="metric-info-sub">Out of {quotaTotal}s Allocated</div>
@@ -1086,7 +1153,7 @@ export default function App() {
           {activeTab === 'submit' && (
             <div className="glass-panel" style={{ maxWidth: '800px', margin: '0 auto', padding: '2rem' }}>
               <div style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   <PlusCircle size={22} color="var(--primary-blue)" />
                   <span>Submit Distributed Compute Workload</span>
                 </h2>
@@ -1244,7 +1311,7 @@ export default function App() {
                       />
                       <label htmlFor="job-file-input" className="dropzone-label">
                         <Upload size={30} color="var(--accent-cyan)" />
-                        <div style={{ marginTop: '0.5rem', fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>
+                        <div style={{ marginTop: '0.5rem', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem' }}>
                           Click to browse or drag & drop files / folders / archives
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
@@ -1313,7 +1380,7 @@ export default function App() {
                     <Clock size={16} />
                     <span>Estimated Cluster Completion Time:</span>
                   </div>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#fff', fontSize: '0.95rem' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>
                     ~{calcApproxTime()} seconds
                   </span>
                 </div>
@@ -1344,7 +1411,7 @@ export default function App() {
             <div>
               <div className="glass-panel" style={{ padding: '1.75rem', marginBottom: '1.5rem' }}>
                 <div style={{ marginBottom: '1.25rem' }}>
-                  <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <BarChart3 size={20} color="var(--accent-cyan)" />
                     <span>Compute Usage & Quota Consumption Velocity</span>
                   </h2>
@@ -1369,7 +1436,15 @@ export default function App() {
                       <XAxis dataKey="time" stroke="#64748b" />
                       <YAxis stroke="#64748b" />
                       <Tooltip
-                        contentStyle={{ backgroundColor: '#0f1624', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                        contentStyle={{
+                          backgroundColor: theme === 'light' ? '#ffffff' : '#0f1624',
+                          borderColor: theme === 'light' ? '#e5eaf2' : 'rgba(255,255,255,0.1)',
+                          borderRadius: '8px',
+                          color: theme === 'light' ? '#1e293b' : '#f1f5f9',
+                          boxShadow: theme === 'light' ? '0 4px 12px rgba(37,99,235,0.10)' : '0 4px 12px rgba(0,0,0,0.4)'
+                        }}
+                        labelStyle={{ color: theme === 'light' ? '#1e293b' : '#f1f5f9' }}
+                        itemStyle={{ color: theme === 'light' ? '#2563eb' : '#93c5fd' }}
                       />
                       <Area type="monotone" dataKey="quotaConsumed" stroke="#2563eb" fillOpacity={1} fill="url(#colorQuota)" name="Quota Consumed (s)" />
                       <Area type="monotone" dataKey="cpuUsage" stroke="#06b6d4" fillOpacity={1} fill="url(#colorCpu)" name="CPU Cores" />
@@ -1384,7 +1459,7 @@ export default function App() {
           {isAdmin && activeTab === 'users' && (
             <div className="glass-panel" style={{ padding: '1.75rem' }}>
               <div style={{ marginBottom: '1.25rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Users size={20} color="var(--primary-blue)" />
                   <span>Student & Researcher Quota Administration</span>
                 </h2>
@@ -1413,11 +1488,11 @@ export default function App() {
                       return (
                         <tr key={u.email}>
                           <td>
-                            <div style={{ fontWeight: 600, color: '#fff' }}>{u.name}</div>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{u.name}</div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{u.role}</div>
                           </td>
                           <td style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{u.email}</td>
-                          <td style={{ fontWeight: 600, color: '#fff' }}>{total}s</td>
+                          <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>{total}s</td>
                           <td style={{ color: 'var(--accent-amber)' }}>{used}s</td>
                           <td style={{ fontWeight: 700, color: rem === 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
                             {rem}s
@@ -1456,7 +1531,7 @@ export default function App() {
             <div className="modal-backdrop">
               <div className="glass-panel modal-card animate-fade-in">
                 <div className="modal-header">
-                  <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Laptop size={20} color="var(--accent-cyan)" />
                     <span>Onboard New Cluster Worker Node</span>
                   </h3>
@@ -1575,9 +1650,9 @@ export default function App() {
                       <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'block' }}>
                         Option 2: Standalone Portable ZIP
                       </label>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: 'rgba(10, 14, 23, 0.6)', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: 'var(--bg-card-hover)', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
                         <div>
-                          <div style={{ fontSize: '0.88rem', fontWeight: 600, color: '#fff' }}>unicompute-worker-{generatedPackage.node.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.zip</div>
+                          <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>unicompute-worker-{generatedPackage.node.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.zip</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Pre-configured with Node Token: <code>{generatedPackage.token}</code></div>
                         </div>
                         <button
