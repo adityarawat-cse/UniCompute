@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 public class NodeService {
 
     private final Map<String, ClusterNode> nodes = new ConcurrentHashMap<>();
+    private final java.util.Set<String> evictedTokens = ConcurrentHashMap.newKeySet();
 
     public NodeService() {
         // Seed default cluster nodes matching demo setup
@@ -96,6 +97,23 @@ public class NodeService {
     public Optional<ClusterNode> recordHeartbeat(HeartbeatRequest request, String clientIp) {
         String token = request.token().trim();
 
+        // If node has been evicted/removed by admin, inform worker to terminate
+        if (evictedTokens.contains(token.toLowerCase())) {
+            return Optional.of(new ClusterNode(
+                    "evicted",
+                    request.nodeName() != null ? request.nodeName() : "Evicted-Node",
+                    request.cores() != null ? request.cores() : 1,
+                    request.memoryGb() != null ? request.memoryGb() : 1,
+                    request.os() != null ? request.os() : "Unknown",
+                    "Terminated",
+                    token,
+                    Instant.now(),
+                    clientIp,
+                    Instant.now(),
+                    false
+            ));
+        }
+
         // Find existing node with this token
         Optional<ClusterNode> existingNode = nodes.values().stream()
                 .filter(n -> token.equalsIgnoreCase(n.token()))
@@ -173,7 +191,14 @@ public class NodeService {
         if ("node-3".equals(id)) {
             return false; // Master cannot be removed
         }
-        return nodes.remove(id) != null;
+        ClusterNode removed = nodes.remove(id);
+        if (removed != null) {
+            if (removed.token() != null && !removed.token().isBlank()) {
+                evictedTokens.add(removed.token().toLowerCase().trim());
+            }
+            return true;
+        }
+        return false;
     }
 
     private ClusterNode computeLiveNodeState(ClusterNode node, Instant now) {

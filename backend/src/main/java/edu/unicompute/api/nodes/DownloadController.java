@@ -324,6 +324,12 @@ public class DownloadController {
         sb.append("    } | ConvertTo-Json\n\n");
         sb.append("    try {\n");
         sb.append("        $resp = Invoke-RestMethod -Uri \"$Server/api/nodes/heartbeat\" -Method POST -ContentType \"application/json\" -Body $body -TimeoutSec 6 -ErrorAction Stop\n");
+        sb.append("        if ($resp.status -eq \"Terminated\") {\n");
+        sb.append("            Write-Host \"\"\n");
+        sb.append("            Write-Host \"[!] Node was permanently removed from cluster by Master Administrator.\" -ForegroundColor Red\n");
+        sb.append("            Write-Host \"[!] Terminating worker agent loop...\" -ForegroundColor Yellow\n");
+        sb.append("            break\n");
+        sb.append("        }\n");
         sb.append("        $consecutiveFailures = 0\n");
         sb.append("        Write-Host \"[$time] [UniCompute] Heartbeat ACK -> Node is \" -NoNewline -ForegroundColor Green\n");
         sb.append("        Write-Host \"$($resp.status)\" -NoNewline -ForegroundColor White\n");
@@ -430,6 +436,11 @@ public class DownloadController {
         sb.append("    -H \"Content-Type: application/json\" \\\n");
         sb.append("    -d \"$PAYLOAD\" || true)\n");
         sb.append("  STATUS_CODE=$(echo \"$RESPONSE\" | grep \"HTTP_STATUS\" | cut -d':' -f2)\n");
+        sb.append("  if echo \"$RESPONSE\" | grep -q '\"status\":\"Terminated\"'; then\n");
+        sb.append("    echo -e \"\\033[0;31m\\n[!] Node was permanently removed from cluster by Master Administrator.\\033[0m\"\n");
+        sb.append("    echo -e \"\\033[0;33m[!] Terminating worker agent...\\033[0m\"\n");
+        sb.append("    exit 0\n");
+        sb.append("  fi\n");
         sb.append("  if [ \"$STATUS_CODE\" = \"200\" ]; then\n");
         sb.append("    echo -e \"\\033[0;32m[$TIMESTAMP] [UniCompute] Heartbeat ACK -> Node is Online & Ready (Visible on Dashboard)\\033[0m\"\n");
         sb.append("  else\n");
