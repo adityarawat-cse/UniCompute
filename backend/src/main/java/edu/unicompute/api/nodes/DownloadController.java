@@ -305,7 +305,7 @@ public class DownloadController {
         sb.append("Write-Host \"\"\n");
         sb.append("Write-Host \"========================================================================\" -ForegroundColor Cyan\n");
         sb.append("Write-Host \"    UniCompute Academic Cluster - Worker Node Agent\" -ForegroundColor Cyan\n");
-        sb.append("========================================================================\"\n");
+        sb.append("Write-Host \"========================================================================\" -ForegroundColor Cyan\n");
         sb.append("Write-Host \"[+] Master Server:    $Server\" -ForegroundColor White\n");
         sb.append("Write-Host \"[+] Node Name:        $Node\" -ForegroundColor Green\n");
         sb.append("Write-Host \"[+] Token:            $Token\" -ForegroundColor DarkGray\n");
