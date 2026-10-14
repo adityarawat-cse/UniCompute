@@ -192,10 +192,12 @@ export default function App() {
     }
   }, [users, currentUser]);
 
-  // Fetch backend data
+  // Fetch backend data and poll every 10s for live telemetry
   useEffect(() => {
     if (currentUser) {
       fetchBackendInfo();
+      const interval = setInterval(fetchBackendInfo, 10000);
+      return () => clearInterval(interval);
     }
   }, [currentUser]);
 
@@ -213,6 +215,14 @@ export default function App() {
       if (jobsRes.ok) {
         const data = await jobsRes.json();
         setAllBackendJobs(data);
+      }
+
+      const nodesRes = await fetch('/api/nodes');
+      if (nodesRes.ok) {
+        const nodesData = await nodesRes.json();
+        if (Array.isArray(nodesData) && nodesData.length > 0) {
+          setClusterNodes(nodesData);
+        }
       }
     } catch (err) {
       setBackendStatus('Running Local (Proxy / Standalone)');
@@ -464,18 +474,25 @@ export default function App() {
       cores: 8,
       memoryGb: 16,
       os: newNodeOS,
-      status: 'Available',
+      status: 'Offline',
       token: token
     };
 
     setClusterNodes([...clusterNodes, newNode]);
 
+    // Persist to Spring Boot backend
+    fetch('/api/nodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newNode)
+    }).catch(err => console.warn('Could not sync node to backend:', err));
+
     // Generate easy one-line auto-installer command based on OS
     let installCommand = '';
     if (newNodeOS === 'Windows') {
-      installCommand = `powershell -Command "Invoke-WebRequest -Uri 'http://${window.location.hostname}:8080/downloads/unicompute-worker.zip' -OutFile 'worker.zip'; Expand-Archive 'worker.zip' -DestinationPath 'unicompute-worker'; .\\unicompute-worker\\start.bat -Token '${token}' -Node '${newNode.name}'"`;
+      installCommand = `powershell -Command "Invoke-WebRequest -Uri 'http://${window.location.hostname}:8080/downloads/unicompute-worker.zip?token=${token}&name=${encodeURIComponent(newNode.name)}' -OutFile 'worker.zip'; Expand-Archive 'worker.zip' -DestinationPath 'unicompute-worker'; .\\unicompute-worker\\start.bat -Token '${token}' -Node '${newNode.name}'"`;
     } else {
-      installCommand = `curl -fsSL http://${window.location.hostname}:8080/downloads/install-worker.sh | bash -s -- --token "${token}" --name "${newNode.name}"`;
+      installCommand = `curl -fsSL "http://${window.location.hostname}:8080/downloads/install-worker.sh?token=${token}&name=${encodeURIComponent(newNode.name)}" | bash -s -- --token "${token}" --name "${newNode.name}"`;
     }
 
     setGeneratedPackage({
@@ -486,22 +503,30 @@ export default function App() {
 
     setFeedback({
       type: 'success',
-      message: `Node "${newNode.name}" created! Share the installation package/command with the computer.`
+      message: `Node "${newNode.name}" registered! Share the installation package/command with the computer.`
     });
   };
 
   // Admin: Toggle break / pause on node (so it can be used for personal lab work without receiving jobs)
   const handleToggleNodeBreak = (nodeId) => {
+    const target = clusterNodes.find(n => n.id === nodeId);
+    const willBeOnBreak = target?.status !== 'On Break';
+    const nextStatus = willBeOnBreak ? 'On Break' : 'Available';
+
     const updated = clusterNodes.map(n => {
       if (n.id === nodeId) {
-        const newStatus = n.status === 'On Break' ? 'Available' : 'On Break';
-        return { ...n, status: newStatus };
+        return { ...n, status: nextStatus };
       }
       return n;
     });
     setClusterNodes(updated);
-    const target = clusterNodes.find(n => n.id === nodeId);
-    const willBeOnBreak = target?.status !== 'On Break';
+
+    fetch(`/api/nodes/${nodeId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus })
+    }).catch(err => console.warn('Could not sync node status to backend:', err));
+
     setFeedback({
       type: 'info',
       message: willBeOnBreak
@@ -518,6 +543,11 @@ export default function App() {
       return;
     }
     setClusterNodes(clusterNodes.filter(n => n.id !== nodeId));
+
+    fetch(`/api/nodes/${nodeId}`, {
+      method: 'DELETE'
+    }).catch(err => console.warn('Could not delete node on backend:', err));
+
     setFeedback({
       type: 'info',
       message: `Node "${target?.name}" removed from the cluster.`
@@ -1086,6 +1116,7 @@ export default function App() {
                     <div className="panel-body">
                       {clusterNodes.map((node) => {
                         const isOnBreak = node.status === 'On Break';
+                        const isOffline = node.status === 'Offline' || node.online === false;
                         const isMaster = node.id === 'node-3';
 
                         return (
@@ -1095,22 +1126,25 @@ export default function App() {
                                 <span
                                   className="nav-live-dot"
                                   style={{
-                                    backgroundColor: isOnBreak ? 'var(--accent-amber)' : 'var(--accent-emerald)',
-                                    boxShadow: isOnBreak ? '0 0 8px var(--accent-amber)' : '0 0 8px var(--accent-emerald)'
+                                    backgroundColor: isOnBreak ? 'var(--accent-amber)' : (isOffline && !isMaster ? '#ef4444' : 'var(--accent-emerald)'),
+                                    boxShadow: isOnBreak ? '0 0 8px var(--accent-amber)' : (isOffline && !isMaster ? '0 0 8px rgba(239, 68, 68, 0.5)' : '0 0 8px var(--accent-emerald)')
                                   }}
                                 />
                                 <span>{node.name}</span>
                                 {isOnBreak && (
                                   <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', marginLeft: '0.3rem' }}>(Free for Local Use)</span>
                                 )}
+                                {isOffline && !isOnBreak && !isMaster && (
+                                  <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: '0.3rem' }}>(Waiting for worker script...)</span>
+                                )}
                               </div>
                               <div className="node-specs">
-                                {node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os}
+                                {node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os} {node.ipAddress ? `• IP: ${node.ipAddress}` : ''}
                               </div>
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                              <span className={isOnBreak ? 'status-badge-queued' : 'status-badge-online'}>
+                              <span className={isOnBreak ? 'status-badge-queued' : (isOffline && !isMaster ? 'status-badge-offline' : 'status-badge-online')}>
                                 {node.status}
                               </span>
 
@@ -1661,6 +1695,9 @@ export default function App() {
                           style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
                           onClick={() => {
                             setFeedback({ type: 'info', message: 'Downloading pre-bundled portable worker archive...' });
+                            const targetHost = window.location.hostname || 'localhost';
+                            const downloadUrl = `http://${targetHost}:8080/downloads/unicompute-worker.zip?token=${encodeURIComponent(generatedPackage.token)}&name=${encodeURIComponent(generatedPackage.node.name)}`;
+                            window.open(downloadUrl, '_blank');
                           }}
                         >
                           <Download size={14} />
