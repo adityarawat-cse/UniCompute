@@ -192,17 +192,17 @@ export default function App() {
     }
   }, [users, currentUser]);
 
-  // Fetch backend data and poll every 10s for live telemetry
+  // Fetch backend data and poll every 4s for live node telemetry
   useEffect(() => {
     if (currentUser) {
       fetchBackendInfo();
-      const interval = setInterval(fetchBackendInfo, 10000);
+      const interval = setInterval(fetchBackendInfo, 4000);
       return () => clearInterval(interval);
     }
   }, [currentUser]);
 
   const fetchBackendInfo = async () => {
-    setIsLoadingJobs(true);
+    // 1. Health check
     try {
       const healthRes = await fetch('/api/health');
       if (healthRes.ok) {
@@ -210,13 +210,26 @@ export default function App() {
       } else {
         setBackendStatus('Offline');
       }
+    } catch (e) {
+      setBackendStatus('Offline');
+    }
 
+    // 2. Jobs list
+    try {
+      setIsLoadingJobs(true);
       const jobsRes = await fetch('/api/jobs');
       if (jobsRes.ok) {
         const data = await jobsRes.json();
         setAllBackendJobs(data);
       }
+    } catch (e) {
+      // keep local
+    } finally {
+      setIsLoadingJobs(false);
+    }
 
+    // 3. Cluster Nodes telemetry (Independent)
+    try {
       const nodesRes = await fetch('/api/nodes');
       if (nodesRes.ok) {
         const nodesData = await nodesRes.json();
@@ -224,10 +237,8 @@ export default function App() {
           setClusterNodes(nodesData);
         }
       }
-    } catch (err) {
-      setBackendStatus('Running Local (Proxy / Standalone)');
-    } finally {
-      setIsLoadingJobs(false);
+    } catch (e) {
+      // keep current
     }
   };
 
@@ -1101,17 +1112,32 @@ export default function App() {
                         <Server size={18} />
                         <span>Cluster Topology ({clusterNodes.length} Nodes)</span>
                       </div>
-                      <button
-                        className="btn-add-node"
-                        onClick={() => {
-                          setGeneratedPackage(null);
-                          setNewNodeName('');
-                          setShowAddNodeModal(true);
-                        }}
-                      >
-                        <PlusCircle size={15} />
-                        <span>Add Worker Node</span>
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          onClick={() => {
+                            fetchBackendInfo();
+                            setFeedback({ type: 'info', message: 'Syncing cluster nodes with backend...' });
+                          }}
+                          title="Refresh Node Statuses"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.42rem 0.75rem', height: 'auto' }}
+                        >
+                          <RefreshCw size={13} />
+                          <span>Sync Nodes</span>
+                        </button>
+                        <button
+                          className="btn-add-node"
+                          onClick={() => {
+                            setGeneratedPackage(null);
+                            setNewNodeName('');
+                            setShowAddNodeModal(true);
+                          }}
+                        >
+                          <PlusCircle size={15} />
+                          <span>Add Worker Node</span>
+                        </button>
+                      </div>
                     </div>
                     <div className="panel-body">
                       {clusterNodes.map((node) => {
