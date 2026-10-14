@@ -1681,18 +1681,30 @@ export default function App() {
                     </div>
 
                     <div style={{ marginBottom: '1.25rem' }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.4rem', display: 'block' }}>
-                        Option 2: Standalone Portable ZIP
+                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.45rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>Option 2: Standalone Portable ZIP (Plug &amp; Play)</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 400 }}>No installation required</span>
                       </label>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85rem 1rem', background: 'var(--bg-card-hover)', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
-                        <div>
-                          <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>unicompute-worker-{generatedPackage.node.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.zip</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Pre-configured with Node Token: <code>{generatedPackage.token}</code></div>
+                      <div className="portable-zip-card">
+                        <div className="portable-zip-left">
+                          <div className="portable-zip-icon-box">
+                            <FolderArchive size={22} />
+                          </div>
+                          <div>
+                            <div className="portable-zip-title">
+                              unicompute-worker-{generatedPackage.node.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.zip
+                            </div>
+                            <div className="portable-zip-meta">
+                              <span>Token:</span>
+                              <code className="portable-zip-token">{generatedPackage.token}</code>
+                              <span className="portable-pill">Portable Agent</span>
+                              <span className="portable-pill">Win / Mac / Linux</span>
+                            </div>
+                          </div>
                         </div>
                         <button
                           type="button"
-                          className="admin-fill-btn"
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                          className="btn-download-zip"
                           onClick={() => {
                             setFeedback({ type: 'info', message: 'Downloading pre-bundled portable worker archive...' });
                             const targetHost = window.location.hostname || 'localhost';
@@ -1700,7 +1712,7 @@ export default function App() {
                             window.open(downloadUrl, '_blank');
                           }}
                         >
-                          <Download size={14} />
+                          <Download size={15} />
                           <span>Download ZIP</span>
                         </button>
                       </div>
