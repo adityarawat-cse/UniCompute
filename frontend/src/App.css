@@ -754,6 +754,16 @@
   font-weight: 600;
 }
 
+.status-badge-offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 0.22rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 /* Admin User Management Table */
 .admin-table {
   width: 100%;

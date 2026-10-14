@@ -11,6 +11,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true
+      },
+      '/downloads': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   }
