@@ -113,7 +113,7 @@ export default function App() {
   const [showRegPwd, setShowRegPwd] = useState(false);
 
   // Theme state ('dark' | 'light')
-  const [theme, setTheme] = useState(() => localStorage.getItem('unicompute_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('unicompute_theme') || 'light');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);

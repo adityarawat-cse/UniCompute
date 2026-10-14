@@ -13,10 +13,10 @@
       (function() {
         try {
           var saved = localStorage.getItem('unicompute_theme');
-          if (saved === 'light') {
-            document.documentElement.setAttribute('data-theme', 'light');
-          } else {
+          if (saved === 'dark') {
             document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.setAttribute('data-theme', 'light');
           }
         } catch (e) {}
       })();
