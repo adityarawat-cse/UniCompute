@@ -134,15 +134,45 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState('Checking...');
   const [allBackendJobs, setAllBackendJobs] = useState([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
+  const [selectedJobOutput, setSelectedJobOutput] = useState(null);
+
+  const DEFAULT_PYTHON_SCRIPT = `# UniCompute Python Distributed Compute Job
+import math
+import time
+
+def find_primes(limit):
+    primes = []
+    for num in range(2, limit):
+        if all(num % i != 0 for i in range(2, int(math.isqrt(num)) + 1)):
+            primes.append(num)
+    return primes
+
+print("==================================================")
+print("UniCompute Distributed Worker - Execution Started")
+print("==================================================")
+start_time = time.time()
+limit = 35000
+primes_list = find_primes(limit)
+duration = time.time() - start_time
+
+print(f"Target: Finding primes up to {limit}")
+print(f"Total primes found: {len(primes_list)}")
+print(f"First 8 primes: {primes_list[:8]}")
+print(f"Last 5 primes: {primes_list[-5:]}")
+print(f"Execution Wall Time: {duration:.4f} seconds")
+print("==================================================")
+print("Computation completed successfully on worker node.")
+`;
 
   // Job Submission Form state
   const [jobForm, setJobForm] = useState({
     jobName: '',
     language: 'PYTHON',
+    sourceCode: DEFAULT_PYTHON_SCRIPT,
     cpuCores: 2,
     memoryMb: 1024,
     storageMb: 256,
-    maxExecutionTimeSeconds: 60,
+    maxExecutionTimeSeconds: 30,
     priority: 3,
     schedulingAlgorithm: 'FCFS'
   });
@@ -171,6 +201,7 @@ export default function App() {
   const [newNodeName, setNewNodeName] = useState('');
   const [newNodeOS, setNewNodeOS] = useState('Windows');
   const [generatedPackage, setGeneratedPackage] = useState(null);
+  const [isSyncingNodes, setIsSyncingNodes] = useState(false);
 
   // Sync nodes to localStorage
   useEffect(() => {
@@ -228,17 +259,41 @@ export default function App() {
       setIsLoadingJobs(false);
     }
 
-    // 3. Cluster Nodes telemetry (Independent)
+    // 3. Cluster Nodes telemetry (Independent with cache busting)
     try {
-      const nodesRes = await fetch('/api/nodes');
+      const nodesRes = await fetch(`/api/nodes?_t=${Date.now()}`, { cache: 'no-store' });
       if (nodesRes.ok) {
         const nodesData = await nodesRes.json();
-        if (Array.isArray(nodesData) && nodesData.length > 0) {
+        if (Array.isArray(nodesData)) {
           setClusterNodes(nodesData);
         }
       }
     } catch (e) {
       // keep current
+    }
+  };
+
+  const handleSyncNodes = async () => {
+    setIsSyncingNodes(true);
+    try {
+      const res = await fetch(`/api/nodes?_t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setClusterNodes(data);
+          const onlineCount = data.filter(n => n.status === 'Available' || n.status === 'Busy' || n.status === 'Active (Master)').length;
+          setFeedback({
+            type: 'success',
+            message: `Cluster nodes refreshed: ${data.length} total (${onlineCount} online/active).`
+          });
+        }
+      } else {
+        setFeedback({ type: 'error', message: 'Failed to refresh nodes from backend.' });
+      }
+    } catch (err) {
+      setFeedback({ type: 'error', message: 'Could not connect to master server.' });
+    } finally {
+      setIsSyncingNodes(false);
     }
   };
 
@@ -398,6 +453,7 @@ export default function App() {
       const payload = {
         jobName: isAdmin ? jobForm.jobName : `[${currentUser.username}] ${jobForm.jobName}`,
         language: jobForm.language,
+        sourceCode: jobForm.sourceCode || DEFAULT_PYTHON_SCRIPT,
         cpuCores: Number(jobForm.cpuCores),
         memoryMb: Number(jobForm.memoryMb),
         storageMb: Number(jobForm.storageMb),
@@ -434,10 +490,11 @@ export default function App() {
         setJobForm({
           jobName: '',
           language: 'PYTHON',
+          sourceCode: DEFAULT_PYTHON_SCRIPT,
           cpuCores: 2,
           memoryMb: 1024,
           storageMb: 256,
-          maxExecutionTimeSeconds: 60,
+          maxExecutionTimeSeconds: 30,
           priority: 3,
           schedulingAlgorithm: 'FCFS'
         });
@@ -454,10 +511,24 @@ export default function App() {
     } catch (err) {
       setFeedback({
         type: 'error',
-        message: 'Could not connect to backend at /api/jobs.'
+        message: 'Network error communicating with master orchestrator.'
       });
     } finally {
       setIsSubmittingJob(false);
+    }
+  };
+
+  const handleCancelJob = async (jobId) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+      if (res.ok) {
+        setFeedback({ type: 'info', message: 'Cancellation signal sent. Worker will abort execution.' });
+        fetchBackendInfo();
+      } else {
+        setFeedback({ type: 'error', message: 'Could not cancel job (it may have already finished).' });
+      }
+    } catch (e) {
+      setFeedback({ type: 'error', message: 'Failed to communicate with master.' });
     }
   };
 
@@ -1084,18 +1155,45 @@ export default function App() {
                     ) : (
                       <div>
                         {userJobs.map((j) => (
-                          <div key={j.jobId} className="node-card">
+                          <div key={j.jobId} className="node-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                               <div className="node-name">
                                 <span>{j.jobName}</span>
                                 <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }}>({j.language})</span>
                               </div>
                               <div className="node-specs">
-                                ID: {j.jobId?.slice(0, 8)}... &bull; CPU: {j.cpuCores}c &bull; RAM: {j.memoryMb}MB &bull; MaxTime: {j.maxExecutionTimeSeconds}s &bull; Priority: {j.priority}
+                                ID: {j.jobId?.slice(0, 8)}... &bull; CPU: {j.cpuCores}c &bull; RAM: {j.memoryMb}MB
+                                {j.assignedNodeName && <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}> &bull; Node: {j.assignedNodeName}</span>}
+                                {j.executionDurationMs != null && <span style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}> &bull; {j.executionDurationMs}ms</span>}
                               </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                              <span className="status-badge-queued">{j.status}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <span className={`status-badge-${j.status ? j.status.toLowerCase() : 'queued'}`}>
+                                {j.status}
+                              </span>
+                              {(j.status === 'COMPLETED' || j.status === 'FAILED' || j.stdout || j.stderr) && (
+                                <button
+                                  type="button"
+                                  className="quota-adjust-btn"
+                                  onClick={() => setSelectedJobOutput(j)}
+                                  title="View Terminal Output"
+                                  style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.65rem', height: 'auto', fontSize: '0.78rem' }}
+                                >
+                                  <Terminal size={12} />
+                                  <span>Output</span>
+                                </button>
+                              )}
+                              {(j.status === 'QUEUED' || j.status === 'ASSIGNED' || j.status === 'RUNNING') && (
+                                <button
+                                  type="button"
+                                  className="node-action-btn"
+                                  onClick={() => handleCancelJob(j.jobId)}
+                                  title="Cancel Job"
+                                  style={{ color: 'var(--accent-rose)', border: 'none', background: 'transparent', padding: '0.2rem' }}
+                                >
+                                  <XCircle size={15} />
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -1116,15 +1214,13 @@ export default function App() {
                         <button
                           type="button"
                           className="quota-adjust-btn"
-                          onClick={() => {
-                            fetchBackendInfo();
-                            setFeedback({ type: 'info', message: 'Syncing cluster nodes with backend...' });
-                          }}
-                          title="Refresh Node Statuses"
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.42rem 0.75rem', height: 'auto' }}
+                          onClick={handleSyncNodes}
+                          disabled={isSyncingNodes}
+                          title="Refresh Node Statuses from Master"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.42rem 0.75rem', height: 'auto', opacity: isSyncingNodes ? 0.75 : 1 }}
                         >
-                          <RefreshCw size={13} />
-                          <span>Sync Nodes</span>
+                          <RefreshCw size={13} className={isSyncingNodes ? 'spin' : ''} />
+                          <span>{isSyncingNodes ? 'Syncing...' : 'Sync Nodes'}</span>
                         </button>
                         <button
                           className="btn-add-node"
@@ -1352,65 +1448,63 @@ export default function App() {
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="form-label">
-                      <span>Compute Workload & Script Upload</span>
-                      <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>Accepts .py, .java, .zip, .tar, folders, binaries</span>
-                    </label>
-
-                    {/* File Dropzone */}
-                    <div className="upload-dropzone">
-                      <input
-                        type="file"
-                        id="job-file-input"
-                        multiple
-                        className="file-input-hidden"
-                        onChange={(e) => {
-                          const files = Array.from(e.target.files || []);
-                          setUploadedFiles((prev) => [...prev, ...files]);
-                        }}
-                      />
-                      <label htmlFor="job-file-input" className="dropzone-label">
-                        <Upload size={30} color="var(--accent-cyan)" />
-                        <div style={{ marginTop: '0.5rem', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem' }}>
-                          Click to browse or drag & drop files / folders / archives
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
-                          Upload single scripts, project packages, datasets, or full <code>.zip</code> bundles
-                        </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                      <label className="form-label" style={{ margin: 0 }}>
+                        <span>Python Source Code (Executed on Remote Worker)</span>
                       </label>
+                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
+                          onClick={() => setJobForm({ ...jobForm, jobName: 'Prime Sieve Benchmark', sourceCode: `# Prime Sieve Calculation\nimport math\nimport time\n\nstart = time.time()\nlimit = 50000\nprimes = [x for x in range(2, limit) if all(x % d != 0 for d in range(2, int(math.isqrt(x)) + 1))]\n\nprint("=== UniCompute Python Execution ===")\nprint(f"Calculated {len(primes)} primes under {limit}")\nprint(f"First 10 primes: {primes[:10]}")\nprint(f"Duration: {time.time() - start:.4f}s")\n` })}
+                        >
+                          Prime Sieve
+                        </button>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
+                          onClick={() => setJobForm({ ...jobForm, jobName: 'Monte Carlo Pi Benchmark', sourceCode: `# Monte Carlo Pi Estimation\nimport random\nimport time\n\nstart = time.time()\nsamples = 500000\ninside = sum(1 for _ in range(samples) if random.random()**2 + random.random()**2 <= 1.0)\npi_est = 4.0 * inside / samples\n\nprint("=== UniCompute Monte Carlo Pi ===")\nprint(f"Samples evaluated: {samples}")\nprint(f"Estimated Pi: {pi_est:.6f}")\nprint(f"Absolute Error: {abs(pi_est - 3.14159265):.6f}")\nprint(f"Computation time: {time.time() - start:.4f}s")\n` })}
+                        >
+                          Monte Carlo Pi
+                        </button>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
+                          onClick={() => setJobForm({ ...jobForm, jobName: 'Matrix Multiplication', sourceCode: `# Matrix Multiplication Test\nimport random\nimport time\n\nN = 120\nA = [[random.random() for _ in range(N)] for _ in range(N)]\nB = [[random.random() for _ in range(N)] for _ in range(N)]\n\nstart = time.time()\nC = [[sum(A[i][k] * B[k][j] for k in range(N)) for j in range(N)] for i in range(N)]\nelapsed = time.time() - start\n\nprint(f"=== {N}x{N} Matrix Multiplication ===")\nprint(f"Top-left result element C[0][0]: {C[0][0]:.4f}")\nprint(f"FLOPs: {2 * N**3}")\nprint(f"Elapsed: {elapsed:.4f} seconds")\n` })}
+                        >
+                          Matrix Compute
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Uploaded Files List */}
-                    {uploadedFiles.length > 0 && (
-                      <div className="uploaded-files-container">
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>
-                          Attached Workload Files ({uploadedFiles.length}):
-                        </div>
-                        <div className="uploaded-files-list">
-                          {uploadedFiles.map((file, idx) => (
-                            <div key={idx} className="uploaded-file-item">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                {file.name.endsWith('.zip') || file.name.endsWith('.tar.gz') ? (
-                                  <FolderArchive size={16} color="var(--accent-amber)" />
-                                ) : (
-                                  <FileCode size={16} color="var(--accent-cyan)" />
-                                )}
-                                <span className="file-item-name">{file.name}</span>
-                                <span className="file-item-size">({(file.size / 1024).toFixed(1)} KB)</span>
-                              </div>
-                              <button
-                                type="button"
-                                className="file-remove-btn"
-                                onClick={() => setUploadedFiles(uploadedFiles.filter((_, i) => i !== idx))}
-                                title="Remove file"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <textarea
+                      className="form-input code-editor-textarea"
+                      rows={12}
+                      value={jobForm.sourceCode}
+                      onChange={(e) => setJobForm({ ...jobForm, sourceCode: e.target.value })}
+                      placeholder="# Enter your Python 3 code here..."
+                      required
+                      style={{
+                        fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                        fontSize: '0.85rem',
+                        lineHeight: 1.5,
+                        background: 'rgba(15, 23, 42, 0.75)',
+                        color: '#38bdf8',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: '8px',
+                        padding: '0.85rem',
+                        resize: 'vertical',
+                        whiteSpace: 'pre',
+                        overflowX: 'auto'
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                      <span>Code is transmitted securely to worker and executed in dedicated process sandbox.</span>
+                      <span>Chars: {jobForm.sourceCode ? jobForm.sourceCode.length : 0} / 65536</span>
+                    </div>
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
@@ -1756,6 +1850,109 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Terminal Output Inspection Modal */}
+          {selectedJobOutput && (
+            <div className="modal-backdrop" onClick={() => setSelectedJobOutput(null)}>
+              <div
+                className="modal-card"
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: '780px', width: '92%' }}
+              >
+                <div className="modal-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <Terminal size={20} color="var(--accent-cyan)" />
+                    <h3 style={{ margin: 0, fontSize: '1.15rem' }}>{selectedJobOutput.jobName}</h3>
+                  </div>
+                  <button
+                    className="modal-close-btn"
+                    onClick={() => setSelectedJobOutput(null)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="modal-body" style={{ marginTop: '0.8rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1rem', background: 'rgba(0,0,0,0.15)', padding: '0.75rem', borderRadius: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Status</div>
+                      <div style={{ fontWeight: 600 }}>{selectedJobOutput.status}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Executing Node</div>
+                      <div style={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>{selectedJobOutput.assignedNodeName || 'Pending'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Runtime Duration</div>
+                      <div style={{ fontWeight: 600, color: 'var(--accent-emerald)' }}>{selectedJobOutput.executionDurationMs != null ? `${selectedJobOutput.executionDurationMs} ms` : 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Exit Code</div>
+                      <div style={{ fontWeight: 600, color: selectedJobOutput.exitCode === 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>{selectedJobOutput.exitCode != null ? selectedJobOutput.exitCode : 'N/A'}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span>Console Standard Output (stdout):</span>
+                  </div>
+                  <pre
+                    style={{
+                      background: '#090d16',
+                      color: '#4ade80',
+                      fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                      fontSize: '0.82rem',
+                      lineHeight: 1.45,
+                      padding: '1rem',
+                      borderRadius: '8px',
+                      maxHeight: '260px',
+                      overflowY: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      border: '1px solid rgba(255,255,255,0.08)'
+                    }}
+                  >
+                    {selectedJobOutput.stdout || (selectedJobOutput.status === 'RUNNING' ? 'Job is currently running on worker laptop... Heartbeats transmitting every 10s.' : 'No standard output recorded.')}
+                  </pre>
+
+                  {selectedJobOutput.stderr && (
+                    <div style={{ marginTop: '0.8rem' }}>
+                      <div style={{ marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent-rose)' }}>
+                        Standard Error & Stack Trace (stderr):
+                      </div>
+                      <pre
+                        style={{
+                          background: '#1a0505',
+                          color: '#f87171',
+                          fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                          fontSize: '0.8rem',
+                          lineHeight: 1.45,
+                          padding: '0.85rem',
+                          borderRadius: '8px',
+                          maxHeight: '150px',
+                          overflowY: 'auto',
+                          whiteSpace: 'pre-wrap',
+                          border: '1px solid rgba(248,113,113,0.2)'
+                        }}
+                      >
+                        {selectedJobOutput.stderr}
+                      </pre>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.2rem' }}>
+                    <button
+                      type="button"
+                      className="btn-submit-academic"
+                      style={{ width: 'auto', padding: '0.5rem 1.4rem' }}
+                      onClick={() => setSelectedJobOutput(null)}
+                    >
+                      Close Output
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}

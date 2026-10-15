@@ -2,6 +2,7 @@ package edu.unicompute.api.nodes;
 
 import java.util.List;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -37,7 +38,27 @@ public class NodeController {
 
     @GetMapping("/api/nodes")
     public ResponseEntity<List<ClusterNode>> getAllNodes() {
-        return ResponseEntity.ok(nodeService.findAll());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .header(HttpHeaders.EXPIRES, "0")
+                .body(nodeService.findAll());
+    }
+
+    @PostMapping("/api/nodes/disconnect")
+    public ResponseEntity<ClusterNode> disconnectNode(
+            @Valid @RequestBody NodeDisconnectRequest request) {
+        ClusterNode node = nodeService.disconnect(request.token())
+                .orElseThrow(() -> new ResourceNotFoundException("Node not registered for token: " + request.token()));
+        return ResponseEntity.ok(node);
+    }
+
+    @GetMapping("/api/nodes/disconnect")
+    public ResponseEntity<ClusterNode> disconnectNodeGet(
+            @RequestParam String token) {
+        ClusterNode node = nodeService.disconnect(token)
+                .orElseThrow(() -> new ResourceNotFoundException("Node not registered for token: " + token));
+        return ResponseEntity.ok(node);
     }
 
     @GetMapping("/api/nodes/{id}")

@@ -128,7 +128,10 @@ public class NodeService {
                     clientIp,
                     request.os(),
                     request.cores(),
-                    request.memoryGb()
+                    request.memoryGb(),
+                    null,
+                    true,
+                    "Python 3"
             );
         } else {
             // Auto-enroll node if not pre-created
@@ -187,6 +190,83 @@ public class NodeService {
         return Optional.of(computeLiveNodeState(updated, Instant.now()));
     }
 
+    public Optional<ClusterNode> disconnect(String token) {
+        String cleanToken = token.trim();
+        Optional<ClusterNode> existingNode = nodes.values().stream()
+                .filter(n -> cleanToken.equalsIgnoreCase(n.token()))
+                .findFirst();
+
+        if (existingNode.isPresent()) {
+            ClusterNode node = existingNode.get();
+            ClusterNode offlineNode = new ClusterNode(
+                    node.id(),
+                    node.name(),
+                    node.cores(),
+                    node.memoryGb(),
+                    node.os(),
+                    "Offline",
+                    node.token(),
+                    null,
+                    node.ipAddress(),
+                    node.registeredAt(),
+                    false
+            );
+            nodes.put(node.id(), offlineNode);
+            return Optional.of(offlineNode);
+        }
+        return Optional.empty();
+    }
+
+    public Optional<ClusterNode> findByToken(String token) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        String clean = token.trim();
+        return nodes.values().stream()
+                .filter(n -> clean.equalsIgnoreCase(n.token()))
+                .map(n -> computeLiveNodeState(n, Instant.now()))
+                .findFirst();
+    }
+
+    public void setNodeBusy(String id, UUID jobId) {
+        ClusterNode node = nodes.get(id);
+        if (node != null) {
+            ClusterNode busyNode = node.withActiveJob(jobId);
+            nodes.put(id, busyNode);
+        }
+    }
+
+    public void setNodeAvailable(String id) {
+        ClusterNode node = nodes.get(id);
+        if (node != null) {
+            ClusterNode availNode = node.withJobCleared();
+            nodes.put(id, availNode);
+        }
+    }
+
+    public void recordWorkerHeartbeat(String token, UUID activeJobId, Boolean pythonAvailable, String pythonVersion) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        String clean = token.trim();
+        nodes.values().stream()
+                .filter(n -> clean.equalsIgnoreCase(n.token()))
+                .findFirst()
+                .ifPresent(existing -> {
+                    ClusterNode updated = existing.withHeartbeat(
+                            Instant.now(),
+                            existing.ipAddress(),
+                            existing.os(),
+                            existing.cores(),
+                            existing.memoryGb(),
+                            activeJobId,
+                            pythonAvailable,
+                            pythonVersion
+                    );
+                    nodes.put(existing.id(), updated);
+                });
+    }
+
     public boolean remove(String id) {
         if ("node-3".equals(id)) {
             return false; // Master cannot be removed
@@ -211,15 +291,22 @@ public class NodeService {
             return node;
         }
 
-        if (node.lastHeartbeat() == null) {
+        if (node.lastHeartbeat() == null || !node.online()) {
             return node.withStatus("Offline", false);
         }
 
         long secondsSinceHeartbeat = Duration.between(node.lastHeartbeat(), now).getSeconds();
-        boolean isRecent = secondsSinceHeartbeat <= 30;
+        boolean isRecent = secondsSinceHeartbeat <= 20;
 
         if (isRecent) {
-            String currentStatus = "On Break".equalsIgnoreCase(node.status()) ? "On Break" : "Available";
+            String currentStatus;
+            if ("On Break".equalsIgnoreCase(node.status())) {
+                currentStatus = "On Break";
+            } else if ("Busy".equalsIgnoreCase(node.status()) || node.activeJobId() != null) {
+                currentStatus = "Busy";
+            } else {
+                currentStatus = "Available";
+            }
             return node.withStatus(currentStatus, true);
         } else {
             String offlineStatus = "On Break".equalsIgnoreCase(node.status()) ? "On Break" : "Offline";

@@ -16,6 +16,9 @@ public record JobSubmissionRequest(
         @Pattern(regexp = "PYTHON|JAVA")
         String language,
 
+        @Size(max = 65536, message = "Source code exceeds 64KB limit")
+        String sourceCode,
+
         @Min(1)
         int cpuCores,
 
@@ -36,4 +39,9 @@ public record JobSubmissionRequest(
         @Pattern(regexp = "FCFS|SJF|PRIORITY|ROUND_ROBIN")
         String schedulingAlgorithm
 ) {
+    public JobSubmissionRequest {
+        if (sourceCode == null) {
+            sourceCode = "";
+        }
+    }
 }
