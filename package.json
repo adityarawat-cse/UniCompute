@@ -7,7 +7,8 @@
     "dev:backend": "mvn spring-boot:run -f backend/pom.xml",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev": "concurrently -k -n \"BACKEND,FRONTEND\" -c \"blue.bold,green.bold\" \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "build": "mvn clean compile -f backend/pom.xml && npm run build --prefix frontend"
+    "build": "mvn clean compile -f backend/pom.xml && npm run build --prefix frontend",
+    "test": "mvn test -f backend/pom.xml"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
