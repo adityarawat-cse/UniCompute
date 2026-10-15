@@ -46,7 +46,8 @@ import {
   Copy,
   Power,
   Sun,
-  Moon
+  Moon,
+  X
 } from 'lucide-react';
 import './App.css';
 
