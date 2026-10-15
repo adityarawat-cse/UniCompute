@@ -47,4 +47,15 @@ public class JobController {
                 .orElseThrow(() -> new ResourceNotFoundException("Job not found with ID: " + id));
         return ResponseEntity.ok(job);
     }
+
+    @PostMapping("/api/jobs/{id}/cancel")
+    public ResponseEntity<Job> cancelJob(@PathVariable UUID id) {
+        boolean cancelled = jobService.cancelJob(id);
+        if (!cancelled) {
+            Job job = jobService.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Job not found with ID: " + id));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(job);
+        }
+        return ResponseEntity.ok(jobService.findById(id).orElseThrow());
+    }
 }
