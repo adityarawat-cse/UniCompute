@@ -123,6 +123,11 @@ public class NodeService {
         Instant now = Instant.now();
 
         if (existingNode.isPresent()) {
+            boolean pyAvail = request.pythonAvailable() != null ? request.pythonAvailable() : true;
+            String pyVer = request.pythonVersion() != null ? request.pythonVersion() : "Python 3";
+            boolean javaAvail = request.javaAvailable() != null ? request.javaAvailable() : true;
+            String javaVer = request.javaVersion() != null ? request.javaVersion() : "Java 17";
+
             node = existingNode.get().withHeartbeat(
                     now,
                     clientIp,
@@ -130,8 +135,10 @@ public class NodeService {
                     request.cores(),
                     request.memoryGb(),
                     null,
-                    true,
-                    "Python 3"
+                    pyAvail,
+                    pyVer,
+                    javaAvail,
+                    javaVer
             );
         } else {
             // Auto-enroll node if not pre-created
@@ -245,6 +252,10 @@ public class NodeService {
     }
 
     public void recordWorkerHeartbeat(String token, UUID activeJobId, Boolean pythonAvailable, String pythonVersion) {
+        recordWorkerHeartbeat(token, activeJobId, pythonAvailable, pythonVersion, true, "Java 17");
+    }
+
+    public void recordWorkerHeartbeat(String token, UUID activeJobId, Boolean pythonAvailable, String pythonVersion, Boolean javaAvailable, String javaVersion) {
         if (token == null || token.isBlank()) {
             return;
         }
@@ -261,7 +272,9 @@ public class NodeService {
                             existing.memoryGb(),
                             activeJobId,
                             pythonAvailable,
-                            pythonVersion
+                            pythonVersion,
+                            javaAvailable,
+                            javaVersion
                     );
                     nodes.put(existing.id(), updated);
                 });

@@ -155,6 +155,7 @@ public class JobService {
             Optional<Job> candidate = jobs.values().stream()
                     .filter(j -> j.status() == JobStatus.QUEUED)
                     .filter(j -> !("PYTHON".equalsIgnoreCase(j.language()) && !workerNode.pythonAvailable()))
+                    .filter(j -> !("JAVA".equalsIgnoreCase(j.language()) && !workerNode.javaAvailable()))
                     .filter(j -> j.cpuCores() <= availableCores && j.cpuCores() <= workerNode.cores())
                     .filter(j -> j.memoryMb() <= availableMemoryMb && (j.memoryMb() <= workerNode.memoryGb() * 1024L))
                     .min(Comparator.comparingInt(Job::priority).reversed().thenComparing(Job::submittedAt));
