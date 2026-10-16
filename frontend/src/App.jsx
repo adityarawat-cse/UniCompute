@@ -47,7 +47,8 @@ import {
   Power,
   Sun,
   Moon,
-  X
+  X,
+  XCircle
 } from 'lucide-react';
 import './App.css';
 
