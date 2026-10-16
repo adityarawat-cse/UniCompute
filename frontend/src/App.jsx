@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import {
   AreaChart,
@@ -194,6 +194,85 @@ print("Computation completed successfully on worker node.")
   });
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+  const [workloadInputMode, setWorkloadInputMode] = useState('file'); // 'file' (default) or 'editor'
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleFileProcess = (file) => {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    const isZip = ext === 'zip' || ext === 'tar' || ext === 'gz';
+
+    setSelectedFile({
+      name: file.name,
+      size: (file.size / 1024).toFixed(1) + ' KB',
+      rawSize: file.size,
+      extension: ext,
+      isZip: isZip
+    });
+
+    if (!jobForm.jobName || jobForm.jobName.trim() === '' || jobForm.jobName.startsWith('Workload-')) {
+      const cleanName = file.name.replace(/\.[^/.]+$/, "");
+      setJobForm(prev => ({ ...prev, jobName: cleanName }));
+    }
+
+    if (isZip) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setJobForm(prev => ({
+          ...prev,
+          sourceCode: e.target.result
+        }));
+      };
+      reader.readAsDataURL(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        const detectedLang = ext === 'java' ? 'JAVA' : 'PYTHON';
+        setJobForm(prev => ({
+          ...prev,
+          language: detectedLang,
+          sourceCode: text
+        }));
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileProcess(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileInputChange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFileProcess(e.target.files[0]);
+    }
+  };
+
+  const handleClearSelectedFile = () => {
+    setSelectedFile(null);
+    setJobForm(prev => ({ ...prev, sourceCode: '' }));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // Cluster Nodes state (persisted)
   const [clusterNodes, setClusterNodes] = useState(() => {
@@ -462,6 +541,14 @@ print("Computation completed successfully on worker node.")
       return;
     }
 
+    if (workloadInputMode === 'file' && !selectedFile && (!jobForm.sourceCode || jobForm.sourceCode === DEFAULT_PYTHON_SCRIPT)) {
+      setFeedback({
+        type: 'error',
+        message: 'Please select or drag a workload file (.zip, .py, .java, etc.) to dispatch, or switch to the Code Editor!'
+      });
+      return;
+    }
+
     setIsSubmittingJob(true);
     setFeedback({ type: '', message: '' });
 
@@ -514,6 +601,9 @@ print("Computation completed successfully on worker node.")
           priority: 3,
           schedulingAlgorithm: 'FCFS'
         });
+        setSelectedFile(null);
+        setWorkloadInputMode('file');
+        if (fileInputRef.current) fileInputRef.current.value = '';
 
         fetchBackendInfo();
         setActiveTab('dashboard');
@@ -1485,16 +1575,70 @@ print("Computation completed successfully on worker node.")
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                      <label className="form-label" style={{ margin: 0 }}>
-                        <span>Source Code (Executed on Remote Worker Node)</span>
-                      </label>
-                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {/* Header bar: Mode Switcher + Example Presets */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem', flexWrap: 'wrap', gap: '0.6rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          onClick={() => {
+                            setWorkloadInputMode('file');
+                            if (fileInputRef.current && !selectedFile) fileInputRef.current.click();
+                          }}
+                          style={{
+                            background: workloadInputMode === 'file' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                            borderColor: workloadInputMode === 'file' ? 'var(--accent-cyan)' : 'var(--border-subtle)',
+                            color: workloadInputMode === 'file' ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                            fontWeight: workloadInputMode === 'file' ? '600' : '400',
+                            padding: '0.35rem 0.75rem',
+                            fontSize: '0.82rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem'
+                          }}
+                        >
+                          <Upload size={14} />
+                          <span>📁 Select / Drag File (Default)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          onClick={() => setWorkloadInputMode('editor')}
+                          style={{
+                            background: workloadInputMode === 'editor' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                            borderColor: workloadInputMode === 'editor' ? 'var(--accent-cyan)' : 'var(--border-subtle)',
+                            color: workloadInputMode === 'editor' ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                            fontWeight: workloadInputMode === 'editor' ? '600' : '400',
+                            padding: '0.35rem 0.75rem',
+                            fontSize: '0.82rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem'
+                          }}
+                        >
+                          <FileCode size={14} />
+                          <span>💻 Direct Code Editor</span>
+                        </button>
+                      </div>
+
+                      {/* Presets kept at the top as requested */}
+                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginRight: '0.2rem' }}>Test Examples:</span>
                         <button
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
-                          onClick={() => setJobForm({ ...jobForm, jobName: 'Prime Sieve Benchmark', language: 'PYTHON', sourceCode: `# Prime Sieve Calculation\nimport math\nimport time\n\nstart = time.time()\nlimit = 50000\nprimes = [x for x in range(2, limit) if all(x % d != 0 for d in range(2, int(math.isqrt(x)) + 1))]\n\nprint("=== UniCompute Python Execution ===")\nprint(f"Calculated {len(primes)} primes under {limit}")\nprint(f"First 10 primes: {primes[:10]}")\nprint(f"Duration: {time.time() - start:.4f}s")\n` })}
+                          onClick={() => {
+                            setJobForm({
+                              ...jobForm,
+                              jobName: 'Prime Sieve Benchmark',
+                              language: 'PYTHON',
+                              sourceCode: `# Prime Sieve Calculation\nimport math\nimport time\n\nstart = time.time()\nlimit = 50000\nprimes = [x for x in range(2, limit) if all(x % d != 0 for d in range(2, int(math.isqrt(x)) + 1))]\n\nprint("=== UniCompute Python Execution ===")\nprint(f"Calculated {len(primes)} primes under {limit}")\nprint(f"First 10 primes: {primes[:10]}")\nprint(f"Duration: {time.time() - start:.4f}s")\n`
+                            });
+                            setSelectedFile(null);
+                            setWorkloadInputMode('editor');
+                          }}
                         >
                           🐍 Py Sieve
                         </button>
@@ -1502,7 +1646,16 @@ print("Computation completed successfully on worker node.")
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
-                          onClick={() => setJobForm({ ...jobForm, jobName: 'Monte Carlo Pi Benchmark', language: 'PYTHON', sourceCode: `# Monte Carlo Pi Estimation\nimport random\nimport time\n\nstart = time.time()\nsamples = 500000\ninside = sum(1 for _ in range(samples) if random.random()**2 + random.random()**2 <= 1.0)\npi_est = 4.0 * inside / samples\n\nprint("=== UniCompute Monte Carlo Pi ===")\nprint(f"Samples evaluated: {samples}")\nprint(f"Estimated Pi: {pi_est:.6f}")\nprint(f"Absolute Error: {abs(pi_est - 3.14159265):.6f}")\nprint(f"Computation time: {time.time() - start:.4f}s")\n` })}
+                          onClick={() => {
+                            setJobForm({
+                              ...jobForm,
+                              jobName: 'Monte Carlo Pi Benchmark',
+                              language: 'PYTHON',
+                              sourceCode: `# Monte Carlo Pi Estimation\nimport random\nimport time\n\nstart = time.time()\nsamples = 500000\ninside = sum(1 for _ in range(samples) if random.random()**2 + random.random()**2 <= 1.0)\npi_est = 4.0 * inside / samples\n\nprint("=== UniCompute Monte Carlo Pi ===")\nprint(f"Samples evaluated: {samples}")\nprint(f"Estimated Pi: {pi_est:.6f}")\nprint(f"Absolute Error: {abs(pi_est - 3.14159265):.6f}")\nprint(f"Computation time: {time.time() - start:.4f}s")\n`
+                            });
+                            setSelectedFile(null);
+                            setWorkloadInputMode('editor');
+                          }}
                         >
                           🐍 Py Pi
                         </button>
@@ -1510,7 +1663,16 @@ print("Computation completed successfully on worker node.")
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
-                          onClick={() => setJobForm({ ...jobForm, jobName: 'Matrix Multiplication', language: 'PYTHON', sourceCode: `# Matrix Multiplication Test\nimport random\nimport time\n\nN = 120\nA = [[random.random() for _ in range(N)] for _ in range(N)]\nB = [[random.random() for _ in range(N)] for _ in range(N)]\n\nstart = time.time()\nC = [[sum(A[i][k] * B[k][j] for k in range(N)) for j in range(N)] for i in range(N)]\nelapsed = time.time() - start\n\nprint(f"=== {N}x{N} Matrix Multiplication ===")\nprint(f"Top-left result element C[0][0]: {C[0][0]:.4f}")\nprint(f"FLOPs: {2 * N**3}")\nprint(f"Elapsed: {elapsed:.4f} seconds")\n` })}
+                          onClick={() => {
+                            setJobForm({
+                              ...jobForm,
+                              jobName: 'Matrix Multiplication',
+                              language: 'PYTHON',
+                              sourceCode: `# Matrix Multiplication Test\nimport random\nimport time\n\nN = 120\nA = [[random.random() for _ in range(N)] for _ in range(N)]\nB = [[random.random() for _ in range(N)] for _ in range(N)]\n\nstart = time.time()\nC = [[sum(A[i][k] * B[k][j] for k in range(N)) for j in range(N)] for i in range(N)]\nelapsed = time.time() - start\n\nprint(f"=== {N}x{N} Matrix Multiplication ===")\nprint(f"Top-left result element C[0][0]: {C[0][0]:.4f}")\nprint(f"FLOPs: {2 * N**3}")\nprint(f"Elapsed: {elapsed:.4f} seconds")\n`
+                            });
+                            setSelectedFile(null);
+                            setWorkloadInputMode('editor');
+                          }}
                         >
                           🐍 Py Matrix
                         </button>
@@ -1518,43 +1680,182 @@ print("Computation completed successfully on worker node.")
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto', color: '#60a5fa' }}
-                          onClick={() => setJobForm({
-                            ...jobForm,
-                            jobName: 'Java Prime Sieve Benchmark',
-                            language: 'JAVA',
-                            sourceCode: `public class Main {\n    public static void main(String[] args) {\n        long start = System.currentTimeMillis();\n        int limit = 50000;\n        int count = 0;\n        for (int i = 2; i <= limit; i++) {\n            boolean prime = true;\n            for (int d = 2; d * d <= i; d++) {\n                if (i % d == 0) { prime = false; break; }\n            }\n            if (prime) count++;\n        }\n        long duration = System.currentTimeMillis() - start;\n        System.out.println("=== UniCompute Java Worker Execution ===");\n        System.out.println("Calculated " + count + " primes up to " + limit);\n        System.out.println("Execution time: " + duration + " ms");\n    }\n}`
-                          })}
+                          onClick={() => {
+                            setJobForm({
+                              ...jobForm,
+                              jobName: 'Java Prime Sieve Benchmark',
+                              language: 'JAVA',
+                              sourceCode: `public class Main {\n    public static void main(String[] args) {\n        long start = System.currentTimeMillis();\n        int limit = 50000;\n        int count = 0;\n        for (int i = 2; i <= limit; i++) {\n            boolean prime = true;\n            for (int d = 2; d * d <= i; d++) {\n                if (i % d == 0) { prime = false; break; }\n            }\n            if (prime) count++;\n        }\n        long duration = System.currentTimeMillis() - start;\n        System.out.println("=== UniCompute Java Worker Execution ===");\n        System.out.println("Calculated " + count + " primes up to " + limit);\n        System.out.println("Execution time: " + duration + " ms");\n    }\n}`
+                            });
+                            setSelectedFile(null);
+                            setWorkloadInputMode('editor');
+                          }}
                         >
                           ☕ Java Sieve
                         </button>
                       </div>
                     </div>
 
-                    <textarea
-                      className="form-input code-editor-textarea"
-                      rows={12}
-                      value={jobForm.sourceCode}
-                      onChange={(e) => setJobForm({ ...jobForm, sourceCode: e.target.value })}
-                      placeholder="# Enter your Python 3 code here..."
-                      required
-                      style={{
-                        fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
-                        fontSize: '0.85rem',
-                        lineHeight: 1.5,
-                        background: 'rgba(15, 23, 42, 0.75)',
-                        color: '#38bdf8',
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: '8px',
-                        padding: '0.85rem',
-                        resize: 'vertical',
-                        whiteSpace: 'pre',
-                        overflowX: 'auto'
-                      }}
+                    {/* Hidden Native File Input */}
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      style={{ display: 'none' }}
+                      accept=".py,.java,.zip,.txt,.sh,.tar,.gz"
+                      onChange={handleFileInputChange}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      <span>Code is transmitted securely to worker and executed in dedicated process sandbox.</span>
-                      <span>Chars: {jobForm.sourceCode ? jobForm.sourceCode.length : 0} / 65536</span>
-                    </div>
+
+                    {/* DEFAULT VIEW: File Drag & Drop / Selection */}
+                    {workloadInputMode === 'file' ? (
+                      <div>
+                        {!selectedFile ? (
+                          <div
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop}
+                            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                            style={{
+                              border: isDraggingFile ? '2px dashed var(--accent-cyan)' : '2px dashed rgba(56, 189, 248, 0.35)',
+                              background: isDraggingFile ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.6)',
+                              borderRadius: '12px',
+                              padding: '2.5rem 1.5rem',
+                              textAlign: 'center',
+                              cursor: 'pointer',
+                              transition: 'all 0.25s ease',
+                              boxShadow: isDraggingFile ? '0 0 20px rgba(56, 189, 248, 0.25)' : 'none'
+                            }}
+                          >
+                            <div style={{ display: 'inline-flex', padding: '1rem', borderRadius: '50%', background: 'rgba(56, 189, 248, 0.1)', color: 'var(--accent-cyan)', marginBottom: '1rem' }}>
+                              <Upload size={32} />
+                            </div>
+                            <h4 style={{ fontSize: '1.05rem', color: 'var(--text-main)', marginBottom: '0.4rem', fontWeight: '600' }}>
+                              Drag and Drop your Workload or Project Archive here
+                            </h4>
+                            <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', maxWidth: '520px', margin: '0 auto 1.25rem auto' }}>
+                              Upload complete <strong style={{ color: '#38bdf8' }}>.zip project packages</strong> (with <code>main.py</code> or <code>Main.java</code>) or single source files (<strong style={{ color: '#38bdf8' }}>.py, .java, .sh, .txt</strong>)
+                            </p>
+                            <button
+                              type="button"
+                              className="btn-submit-academic"
+                              style={{ width: 'auto', padding: '0.5rem 1.25rem', fontSize: '0.85rem', display: 'inline-flex', margin: '0 auto' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (fileInputRef.current) fileInputRef.current.click();
+                              }}
+                            >
+                              <Laptop size={16} />
+                              <span>Select File from Computer</span>
+                            </button>
+                          </div>
+                        ) : (
+                          /* Selected File Card */
+                          <div
+                            style={{
+                              border: '1px solid rgba(56, 189, 248, 0.4)',
+                              background: 'rgba(15, 23, 42, 0.8)',
+                              borderRadius: '12px',
+                              padding: '1.25rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '1rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                              <div style={{ padding: '0.75rem', borderRadius: '10px', background: selectedFile.isZip ? 'rgba(234, 179, 8, 0.15)' : 'rgba(56, 189, 248, 0.15)', color: selectedFile.isZip ? '#eab308' : 'var(--accent-cyan)' }}>
+                                {selectedFile.isZip ? <FolderArchive size={28} /> : <FileCode size={28} />}
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontWeight: '600', color: 'var(--text-main)', fontSize: '0.95rem' }}>
+                                    {selectedFile.name}
+                                  </span>
+                                  <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '4px', background: selectedFile.isZip ? 'rgba(234, 179, 8, 0.2)' : 'rgba(56, 189, 248, 0.2)', color: selectedFile.isZip ? '#eab308' : '#38bdf8' }}>
+                                    {selectedFile.isZip ? '📦 ZIP Multi-File Package' : selectedFile.extension === 'java' ? '☕ Java File' : '🐍 Python Script'}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
+                                  Size: {selectedFile.size} • Ready for distribution to cluster nodes
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              {!selectedFile.isZip && (
+                                <button
+                                  type="button"
+                                  className="quota-adjust-btn"
+                                  onClick={() => setWorkloadInputMode('editor')}
+                                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', color: '#38bdf8' }}
+                                >
+                                  ✏️ Edit Code
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="quota-adjust-btn"
+                                onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+                              >
+                                Replace File
+                              </button>
+                              <button
+                                type="button"
+                                className="quota-adjust-btn"
+                                onClick={handleClearSelectedFile}
+                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', color: '#ef4444' }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                          <span>ZIP files are extracted automatically on the worker and run using <code>Main.java</code> or <code>main.py</code>.</span>
+                          <span>Default input mode is File Upload</span>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ALTERNATIVE VIEW: Direct Code Editor */
+                      <div>
+                        <textarea
+                          className="form-input code-editor-textarea"
+                          rows={12}
+                          value={jobForm.sourceCode}
+                          onChange={(e) => setJobForm({ ...jobForm, sourceCode: e.target.value })}
+                          placeholder="# Enter your Python 3 or Java code here..."
+                          required
+                          style={{
+                            fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                            fontSize: '0.85rem',
+                            lineHeight: 1.5,
+                            background: 'rgba(15, 23, 42, 0.75)',
+                            color: '#38bdf8',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '8px',
+                            padding: '0.85rem',
+                            resize: 'vertical',
+                            whiteSpace: 'pre',
+                            overflowX: 'auto',
+                            width: '100%'
+                          }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                          <span>Code is transmitted securely to worker and executed in dedicated process sandbox.</span>
+                          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => setWorkloadInputMode('file')}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline' }}
+                            >
+                              ← Switch back to File Upload
+                            </button>
+                            <span>Chars: {jobForm.sourceCode ? jobForm.sourceCode.length : 0} / 65536</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
