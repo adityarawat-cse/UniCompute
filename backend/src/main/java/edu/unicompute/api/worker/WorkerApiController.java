@@ -93,10 +93,12 @@ public class WorkerApiController {
         }
 
         UUID activeJobId = (req != null) ? req.activeJobId() : null;
-        Boolean pyAvail = (req != null) ? req.pythonAvailable() : true;
-        String pyVer = (req != null) ? req.pythonVersion() : "Python 3";
+        Boolean pyAvail = (req != null && req.pythonAvailable() != null) ? req.pythonAvailable() : true;
+        String pyVer = (req != null && req.pythonVersion() != null) ? req.pythonVersion() : "Python 3";
+        Boolean javaAvail = (req != null && req.javaAvailable() != null) ? req.javaAvailable() : true;
+        String javaVer = (req != null && req.javaVersion() != null) ? req.javaVersion() : "Java 17";
 
-        nodeService.recordWorkerHeartbeat(token, activeJobId, pyAvail, pyVer);
+        nodeService.recordWorkerHeartbeat(token, activeJobId, pyAvail, pyVer, javaAvail, javaVer);
 
         // Check if the worker is executing a job that has been cancelled
         if (activeJobId != null) {

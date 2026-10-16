@@ -62,6 +62,17 @@ const ADMIN_USER = {
   usedSeconds: 0
 };
 
+// Pre-seeded Student Credentials
+const DEFAULT_STUDENT = {
+  username: 'student',
+  email: 'student@unicompute.edu',
+  name: 'Student Researcher',
+  password: 'student123',
+  role: 'Student / Researcher',
+  quotaSeconds: 1200,
+  usedSeconds: 0
+};
+
 export default function App() {
   const [authMode, setAuthMode] = useState('login');
 
@@ -71,17 +82,21 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Ensure quota fields exist
-        return parsed.map(u => ({
+        const hasAdmin = parsed.some(u => u.username === 'aditya');
+        const hasStudent = parsed.some(u => u.username === 'student');
+        let list = [...parsed];
+        if (!hasAdmin) list.unshift(ADMIN_USER);
+        if (!hasStudent) list.push(DEFAULT_STUDENT);
+        return list.map(u => ({
           ...u,
-          quotaSeconds: u.quotaSeconds ?? (u.username === 'aditya' ? 10000 : 300),
+          quotaSeconds: u.quotaSeconds ?? (u.username === 'aditya' ? 10000 : 1200),
           usedSeconds: u.usedSeconds ?? 0
         }));
       } catch (e) {
-        return [ADMIN_USER];
+        return [ADMIN_USER, DEFAULT_STUDENT];
       }
     }
-    return [ADMIN_USER];
+    return [ADMIN_USER, DEFAULT_STUDENT];
   });
 
   // Current session
@@ -800,6 +815,21 @@ print("Computation completed successfully on worker node.")
                   <span>Authorize & Access Dashboard</span>
                   <ArrowRight size={18} />
                 </button>
+
+                <div style={{ marginTop: '1.25rem', padding: '0.85rem', background: 'var(--surface-elevated, rgba(255,255,255,0.04))', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sparkles size={14} style={{ color: 'var(--accent)' }} />
+                    <span>Quick Demo Logins (Click to Autofill):</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button type="button" className="btn-secondary" style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', cursor: 'pointer' }} onClick={() => { setLoginIdentifier('aditya'); setLoginPassword('224256'); }}>
+                      👑 Admin: aditya / 224256
+                    </button>
+                    <button type="button" className="btn-secondary" style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', cursor: 'pointer' }} onClick={() => { setLoginIdentifier('student'); setLoginPassword('student123'); }}>
+                      🎓 Student: student / student123
+                    </button>
+                  </div>
+                </div>
               </form>
             ) : (
               <form onSubmit={handleRegisterSubmit} id="register-form">
@@ -1261,8 +1291,14 @@ print("Computation completed successfully on worker node.")
                                   <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: '0.3rem' }}>(Waiting for worker script...)</span>
                                 )}
                               </div>
-                              <div className="node-specs">
-                                {node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os} {node.ipAddress ? `• IP: ${node.ipAddress}` : ''}
+                              <div className="node-specs" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
+                                <span>{node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os} {node.ipAddress ? `• IP: ${node.ipAddress}` : ''}</span>
+                                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: node.pythonAvailable !== false ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: node.pythonAvailable !== false ? '#22c55e' : '#ef4444', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                  🐍 {node.pythonVersion || (node.pythonAvailable !== false ? 'Python 3' : 'No Python')}
+                                </span>
+                                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: node.javaAvailable ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: node.javaAvailable ? '#22c55e' : '#ef4444', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                  ☕ {node.javaVersion || (node.javaAvailable ? 'Java' : 'No Java')}
+                                </span>
                               </div>
                             </div>
 
@@ -1451,32 +1487,45 @@ print("Computation completed successfully on worker node.")
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                       <label className="form-label" style={{ margin: 0 }}>
-                        <span>Python Source Code (Executed on Remote Worker)</span>
+                        <span>Source Code (Executed on Remote Worker Node)</span>
                       </label>
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                         <button
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
-                          onClick={() => setJobForm({ ...jobForm, jobName: 'Prime Sieve Benchmark', sourceCode: `# Prime Sieve Calculation\nimport math\nimport time\n\nstart = time.time()\nlimit = 50000\nprimes = [x for x in range(2, limit) if all(x % d != 0 for d in range(2, int(math.isqrt(x)) + 1))]\n\nprint("=== UniCompute Python Execution ===")\nprint(f"Calculated {len(primes)} primes under {limit}")\nprint(f"First 10 primes: {primes[:10]}")\nprint(f"Duration: {time.time() - start:.4f}s")\n` })}
+                          onClick={() => setJobForm({ ...jobForm, jobName: 'Prime Sieve Benchmark', language: 'PYTHON', sourceCode: `# Prime Sieve Calculation\nimport math\nimport time\n\nstart = time.time()\nlimit = 50000\nprimes = [x for x in range(2, limit) if all(x % d != 0 for d in range(2, int(math.isqrt(x)) + 1))]\n\nprint("=== UniCompute Python Execution ===")\nprint(f"Calculated {len(primes)} primes under {limit}")\nprint(f"First 10 primes: {primes[:10]}")\nprint(f"Duration: {time.time() - start:.4f}s")\n` })}
                         >
-                          Prime Sieve
+                          🐍 Py Sieve
                         </button>
                         <button
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
-                          onClick={() => setJobForm({ ...jobForm, jobName: 'Monte Carlo Pi Benchmark', sourceCode: `# Monte Carlo Pi Estimation\nimport random\nimport time\n\nstart = time.time()\nsamples = 500000\ninside = sum(1 for _ in range(samples) if random.random()**2 + random.random()**2 <= 1.0)\npi_est = 4.0 * inside / samples\n\nprint("=== UniCompute Monte Carlo Pi ===")\nprint(f"Samples evaluated: {samples}")\nprint(f"Estimated Pi: {pi_est:.6f}")\nprint(f"Absolute Error: {abs(pi_est - 3.14159265):.6f}")\nprint(f"Computation time: {time.time() - start:.4f}s")\n` })}
+                          onClick={() => setJobForm({ ...jobForm, jobName: 'Monte Carlo Pi Benchmark', language: 'PYTHON', sourceCode: `# Monte Carlo Pi Estimation\nimport random\nimport time\n\nstart = time.time()\nsamples = 500000\ninside = sum(1 for _ in range(samples) if random.random()**2 + random.random()**2 <= 1.0)\npi_est = 4.0 * inside / samples\n\nprint("=== UniCompute Monte Carlo Pi ===")\nprint(f"Samples evaluated: {samples}")\nprint(f"Estimated Pi: {pi_est:.6f}")\nprint(f"Absolute Error: {abs(pi_est - 3.14159265):.6f}")\nprint(f"Computation time: {time.time() - start:.4f}s")\n` })}
                         >
-                          Monte Carlo Pi
+                          🐍 Py Pi
                         </button>
                         <button
                           type="button"
                           className="quota-adjust-btn"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto' }}
-                          onClick={() => setJobForm({ ...jobForm, jobName: 'Matrix Multiplication', sourceCode: `# Matrix Multiplication Test\nimport random\nimport time\n\nN = 120\nA = [[random.random() for _ in range(N)] for _ in range(N)]\nB = [[random.random() for _ in range(N)] for _ in range(N)]\n\nstart = time.time()\nC = [[sum(A[i][k] * B[k][j] for k in range(N)) for j in range(N)] for i in range(N)]\nelapsed = time.time() - start\n\nprint(f"=== {N}x{N} Matrix Multiplication ===")\nprint(f"Top-left result element C[0][0]: {C[0][0]:.4f}")\nprint(f"FLOPs: {2 * N**3}")\nprint(f"Elapsed: {elapsed:.4f} seconds")\n` })}
+                          onClick={() => setJobForm({ ...jobForm, jobName: 'Matrix Multiplication', language: 'PYTHON', sourceCode: `# Matrix Multiplication Test\nimport random\nimport time\n\nN = 120\nA = [[random.random() for _ in range(N)] for _ in range(N)]\nB = [[random.random() for _ in range(N)] for _ in range(N)]\n\nstart = time.time()\nC = [[sum(A[i][k] * B[k][j] for k in range(N)) for j in range(N)] for i in range(N)]\nelapsed = time.time() - start\n\nprint(f"=== {N}x{N} Matrix Multiplication ===")\nprint(f"Top-left result element C[0][0]: {C[0][0]:.4f}")\nprint(f"FLOPs: {2 * N**3}")\nprint(f"Elapsed: {elapsed:.4f} seconds")\n` })}
                         >
-                          Matrix Compute
+                          🐍 Py Matrix
+                        </button>
+                        <button
+                          type="button"
+                          className="quota-adjust-btn"
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', height: 'auto', color: '#60a5fa' }}
+                          onClick={() => setJobForm({
+                            ...jobForm,
+                            jobName: 'Java Prime Sieve Benchmark',
+                            language: 'JAVA',
+                            sourceCode: `public class Main {\n    public static void main(String[] args) {\n        long start = System.currentTimeMillis();\n        int limit = 50000;\n        int count = 0;\n        for (int i = 2; i <= limit; i++) {\n            boolean prime = true;\n            for (int d = 2; d * d <= i; d++) {\n                if (i % d == 0) { prime = false; break; }\n            }\n            if (prime) count++;\n        }\n        long duration = System.currentTimeMillis() - start;\n        System.out.println("=== UniCompute Java Worker Execution ===");\n        System.out.println("Calculated " + count + " primes up to " + limit);\n        System.out.println("Execution time: " + duration + " ms");\n    }\n}`
+                          })}
+                        >
+                          ☕ Java Sieve
                         </button>
                       </div>
                     </div>
