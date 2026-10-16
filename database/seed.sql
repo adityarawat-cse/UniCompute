@@ -5,12 +5,14 @@
 
 USE `unicompute_db`;
 
--- 1. Initial Users
+-- 1. Initial Users (Matching App.jsx credentials & system accounts)
 INSERT INTO `users` (`user_id`, `username`, `email`, `password_hash`, `full_name`, `role`, `status`, `department`)
 VALUES 
     (1, 'admin', 'admin@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'System Administrator', 'ADMIN', 'ACTIVE', 'Information Technology'),
-    (2, 'dr_sharma', 'asharma@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Dr. Alok Sharma', 'RESEARCHER', 'ACTIVE', 'Computer Science & Engineering'),
-    (3, 'gungun', 'gsaini@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Gungun Saini', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering')
+    (2, 'aditya', 'aditya@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Aditya Rawat (Admin)', 'ADMIN', 'ACTIVE', 'Computer Science & Engineering'),
+    (3, 'student', 'student@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Student Researcher', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering'),
+    (4, 'dr_sharma', 'asharma@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Dr. Alok Sharma', 'RESEARCHER', 'ACTIVE', 'Computer Science & Engineering'),
+    (5, 'gungun', 'gsaini@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Gungun Saini', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering')
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
 -- 2. Initial Academic/Research Projects
@@ -21,10 +23,10 @@ VALUES
 ON DUPLICATE KEY UPDATE `title` = VALUES(`title`);
 
 -- 3. Initial Cluster Servers (Coordinates with current worker registration)
-INSERT INTO `servers` (`server_id`, `node_name`, `ip_address`, `os`, `total_cores`, `total_memory_gb`, `token`, `status`, `is_online`, `python_available`, `python_version`)
+INSERT INTO `servers` (`server_id`, `node_name`, `ip_address`, `os`, `total_cores`, `total_memory_gb`, `token`, `status`, `is_online`, `python_available`, `python_version`, `java_available`, `java_version`)
 VALUES 
-    ('uc-node-lab1-01', 'Lab1-Master-Node', '192.168.1.101', 'Windows 11 Pro 64-bit', 8, 16, 'uc_tok_sample101', 'AVAILABLE', TRUE, TRUE, 'Python 3.11.4'),
-    ('uc-node-lab1-02', 'Lab1-Compute-Worker-02', '192.168.1.102', 'Ubuntu 24.04 LTS', 16, 32, 'uc_tok_sample102', 'AVAILABLE', TRUE, TRUE, 'Python 3.12.0')
+    ('uc-node-lab1-01', 'Lab1-Master-Node', '192.168.1.101', 'Windows 11 Pro 64-bit', 8, 16, 'uc_tok_sample101', 'AVAILABLE', TRUE, TRUE, 'Python 3.11.4', TRUE, 'Java 25'),
+    ('uc-node-lab1-02', 'Lab1-Compute-Worker-02', '192.168.1.102', 'Ubuntu 24.04 LTS', 16, 32, 'uc_tok_sample102', 'AVAILABLE', TRUE, TRUE, 'Python 3.12.0', TRUE, 'Java 21')
 ON DUPLICATE KEY UPDATE `node_name` = VALUES(`node_name`);
 
 -- 4. Server Resources Details
@@ -38,18 +40,21 @@ ON DUPLICATE KEY UPDATE `available_ram_mb` = VALUES(`available_ram_mb`);
 INSERT INTO `quotas` (`user_id`, `project_id`, `max_concurrent_jobs`, `max_cpu_cores`, `max_memory_mb`, `max_execution_time_seconds`, `max_daily_jobs`)
 VALUES 
     (1, NULL, 50, 64, 131072, 86400, 1000),
-    (2, NULL, 20, 32, 65536, 14400, 200),
-    (3, NULL, 5, 8, 16384, 3600, 50)
+    (2, NULL, 50, 64, 131072, 86400, 1000),
+    (3, NULL, 10, 16, 32768, 7200, 100),
+    (4, NULL, 20, 32, 65536, 14400, 200),
+    (5, NULL, 5, 8, 16384, 3600, 50)
 ON DUPLICATE KEY UPDATE `max_concurrent_jobs` = VALUES(`max_concurrent_jobs`);
 
--- 6. Sample Initial Job Record (Matching Spring Boot UUID structure)
+-- 6. Sample Initial Job Records (Matching Spring Boot UUID structure & runtimes)
 INSERT INTO `jobs` (
     `job_id`, `job_name`, `language`, `source_code`, 
     `cpu_cores`, `memory_mb`, `storage_mb`, `max_execution_time_seconds`, 
     `priority`, `scheduling_algorithm`, `status`, `user_id`, `project_id`, 
     `assigned_server_id`, `assigned_node_name`, `retry_count`
 )
-VALUES (
+VALUES 
+(
     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     'Monte Carlo Pi Estimation',
     'PYTHON',
@@ -66,17 +71,45 @@ VALUES (
     'uc-node-lab1-01',
     'Lab1-Master-Node',
     0
+),
+(
+    'b2c3d4e5-f6a7-8901-bcde-fa2345678901',
+    'Java Distributed Prime Sieve',
+    'JAVA',
+    'public class Main {\n    public static void main(String[] args) {\n        long start = System.currentTimeMillis();\n        int count = 0;\n        for (int i = 2; i <= 100000; i++) {\n            if (isPrime(i)) count++;\n        }\n        long duration = System.currentTimeMillis() - start;\n        System.out.println("UniCompute Java Worker: Found " + count + " primes in " + duration + "ms");\n    }\n    private static boolean isPrime(int n) {\n        for (int i = 2; i * i <= n; i++) {\n            if (n % i == 0) return false;\n        }\n        return true;\n    }\n}',
+    2,
+    1024,
+    2048,
+    300,
+    5,
+    'Priority',
+    'COMPLETED',
+    2,
+    1,
+    'uc-node-lab1-01',
+    'Lab1-Master-Node',
+    0
 )
 ON DUPLICATE KEY UPDATE `job_name` = VALUES(`job_name`);
 
--- 7. Sample Job Execution Record
+-- 7. Sample Job Execution Records
 INSERT INTO `job_executions` (`job_id`, `server_id`, `exit_code`, `duration_ms`, `stdout`, `stderr`, `error_message`)
-VALUES (
+VALUES 
+(
     'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     'uc-node-lab1-01',
     0,
     1420,
     'Estimated Pi: 3.141528\nExecution completed successfully.\n',
+    '',
+    NULL
+),
+(
+    'b2c3d4e5-f6a7-8901-bcde-fa2345678901',
+    'uc-node-lab1-01',
+    0,
+    890,
+    'UniCompute Java Worker: Found 9592 primes in 48ms\nExecution completed successfully.\n',
     '',
     NULL
 );

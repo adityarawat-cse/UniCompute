@@ -78,6 +78,8 @@ CREATE TABLE `servers` (
     `is_online` BOOLEAN NOT NULL DEFAULT TRUE,
     `python_available` BOOLEAN NOT NULL DEFAULT TRUE,
     `python_version` VARCHAR(50) NULL DEFAULT 'Python 3',
+    `java_available` BOOLEAN NOT NULL DEFAULT TRUE,
+    `java_version` VARCHAR(50) NULL DEFAULT 'Java 17',
     `active_job_id` VARCHAR(36) NULL COMMENT 'UUID of current active job if running',
     `last_heartbeat` TIMESTAMP NULL,
     `registered_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
