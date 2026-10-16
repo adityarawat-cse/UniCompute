@@ -350,6 +350,7 @@ public class DownloadController {
         sb.append("                break\n");
         sb.append("            }\n");
         sb.append("            $consecutiveFailures = 0\n");
+        sb.append("            Write-Host \"[$time] [Heartbeat] Heartbeat transmitted -> Master OK (Status: $($resp.status))\" -ForegroundColor Green\n");
         sb.append("        } catch {\n");
         sb.append("            $consecutiveFailures++\n");
         sb.append("            Write-Host \"[$time] [UniCompute] Heartbeat retry ($consecutiveFailures)...\" -ForegroundColor DarkYellow\n");
