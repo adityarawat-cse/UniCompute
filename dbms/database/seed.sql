@@ -6,13 +6,13 @@
 USE `unicompute_db`;
 
 -- 1. Initial Users (Matching App.jsx credentials & system accounts)
-INSERT INTO `users` (`user_id`, `username`, `email`, `password_hash`, `full_name`, `role`, `status`, `department`)
+INSERT INTO `users` (`user_id`, `username`, `email`, `password_hash`, `full_name`, `role`, `status`, `department`, `daily_quota_seconds`, `used_quota_seconds`)
 VALUES 
-    (1, 'admin', 'admin@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'System Administrator', 'ADMIN', 'ACTIVE', 'Information Technology'),
-    (2, 'aditya', 'aditya@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Aditya Rawat (Admin)', 'ADMIN', 'ACTIVE', 'Computer Science & Engineering'),
-    (3, 'student', 'student@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Student Researcher', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering'),
-    (4, 'dr_sharma', 'asharma@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Dr. Alok Sharma', 'RESEARCHER', 'ACTIVE', 'Computer Science & Engineering'),
-    (5, 'gungun', 'gsaini@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Gungun Saini', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering')
+    (1, 'admin', 'admin@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'System Administrator', 'ADMIN', 'ACTIVE', 'Information Technology', 10000, 0),
+    (2, 'aditya', 'aditya@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Aditya Rawat (Admin)', 'ADMIN', 'ACTIVE', 'Computer Science & Engineering', 10000, 0),
+    (3, 'student', 'student@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Student Researcher', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering', 1200, 0),
+    (4, 'dr_sharma', 'asharma@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Dr. Alok Sharma', 'RESEARCHER', 'ACTIVE', 'Computer Science & Engineering', 7200, 0),
+    (5, 'gungun', 'gsaini@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Gungun Saini', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering', 3600, 0)
 ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
 
 -- 2. Initial Academic/Research Projects

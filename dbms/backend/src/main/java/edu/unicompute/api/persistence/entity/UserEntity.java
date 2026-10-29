@@ -42,6 +42,15 @@ public class UserEntity {
     @Column(name = "department", length = 100)
     private String department;
 
+    @Column(name = "daily_quota_seconds", nullable = false)
+    private Integer dailyQuotaSeconds = 3600;
+
+    @Column(name = "used_quota_seconds", nullable = false)
+    private Integer usedQuotaSeconds = 0;
+
+    @Column(name = "quota_reset_at", nullable = false)
+    private Instant quotaResetAt = Instant.now();
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -73,6 +82,15 @@ public class UserEntity {
 
     public String getDepartment() { return department; }
     public void setDepartment(String department) { this.department = department; }
+
+    public Integer getDailyQuotaSeconds() { return dailyQuotaSeconds; }
+    public void setDailyQuotaSeconds(Integer dailyQuotaSeconds) { this.dailyQuotaSeconds = dailyQuotaSeconds; }
+
+    public Integer getUsedQuotaSeconds() { return usedQuotaSeconds; }
+    public void setUsedQuotaSeconds(Integer usedQuotaSeconds) { this.usedQuotaSeconds = usedQuotaSeconds; }
+
+    public Instant getQuotaResetAt() { return quotaResetAt; }
+    public void setQuotaResetAt(Instant quotaResetAt) { this.quotaResetAt = quotaResetAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
