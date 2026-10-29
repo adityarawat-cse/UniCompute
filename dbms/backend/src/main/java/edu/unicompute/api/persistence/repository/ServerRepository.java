@@ -11,3 +11,4 @@ import edu.unicompute.api.persistence.entity.ServerEntity;
 public interface ServerRepository extends JpaRepository<ServerEntity, String> {
     Optional<ServerEntity> findByToken(String token);
 }
+

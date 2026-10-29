@@ -6,3 +6,4 @@ public record UserLoginRequest(
         @NotBlank String identifier,
         @NotBlank String password
 ) {}
+

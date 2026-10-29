@@ -12,3 +12,4 @@ public record UserRegistrationRequest(
         String role,
         String department
 ) {}
+
