@@ -3,6 +3,9 @@ import confetti from 'canvas-confetti';
 import {
   AreaChart,
   Area,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
@@ -291,6 +294,11 @@ print("Computation completed successfully on worker node.")
       { id: 'node-3', name: 'Node-Master-Orchestrator', cores: 8, memoryGb: 16, os: 'macOS (Host)', status: 'Active (Master)', token: 'master_token' }
     ];
   });
+
+  // State for interactive node metrics and pie chart (F-4)
+  const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const [pinnedNodeMetricsId, setPinnedNodeMetricsId] = useState(null);
+  const [activeJobDetailsNodeId, setActiveJobDetailsNodeId] = useState(null);
 
   // Modal state for adding a worker node
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
@@ -1473,67 +1481,258 @@ print("Computation completed successfully on worker node.")
                         const isOnBreak = node.status === 'On Break';
                         const isOffline = node.status === 'Offline' || node.online === false;
                         const isMaster = node.id === 'node-3';
+                        const isHovered = hoveredNodeId === node.id;
+                        const isPinned = pinnedNodeMetricsId === node.id;
+                        const showMetrics = isHovered || isPinned;
+
+                        // Calculate resource telemetry for F-4 3-color pie chart
+                        const totalMem = node.memoryGb || 16;
+                        const activeNodeJobs = allBackendJobs.filter(j => 
+                          (j.assignedNodeId === node.id || j.assignedNodeName === node.name) && 
+                          (j.status === 'RUNNING' || j.status === 'ASSIGNED')
+                        );
+                        const occupiedMb = activeNodeJobs.reduce((acc, curr) => acc + (curr.memoryMb || 0), 0);
+                        const occupiedGb = Math.round((occupiedMb / 1024) * 10) / 10;
+                        const reservedGb = Math.round(totalMem * 0.15 * 10) / 10;
+                        const freeGb = Math.max(0, Math.round((totalMem - occupiedGb - reservedGb) * 10) / 10);
+
+                        const pieData = [
+                          { name: 'Available Space', value: freeGb > 0 ? freeGb : 0.2, color: '#10b981', displayVal: `${freeGb} GB` },
+                          { name: 'Process Occupied', value: occupiedGb > 0 ? occupiedGb : 0.1, color: '#f59e0b', displayVal: `${occupiedGb} GB (${activeNodeJobs.length} jobs)` },
+                          { name: 'System Reserve', value: reservedGb, color: '#6366f1', displayVal: `${reservedGb} GB` }
+                        ];
 
                         return (
-                          <div key={node.id} className="node-card" style={{ opacity: isOnBreak ? 0.75 : 1 }}>
-                            <div>
-                              <div className="node-name">
-                                <span
-                                  className="nav-live-dot"
-                                  style={{
-                                    backgroundColor: isOnBreak ? 'var(--accent-amber)' : (isOffline && !isMaster ? '#ef4444' : 'var(--accent-emerald)'),
-                                    boxShadow: isOnBreak ? '0 0 8px var(--accent-amber)' : (isOffline && !isMaster ? '0 0 8px rgba(239, 68, 68, 0.5)' : '0 0 8px var(--accent-emerald)')
-                                  }}
-                                />
-                                <span>{node.name}</span>
-                                {isOnBreak && (
-                                  <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', marginLeft: '0.3rem' }}>(Free for Local Use)</span>
-                                )}
-                                {isOffline && !isOnBreak && !isMaster && (
-                                  <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: '0.3rem' }}>(Waiting for worker script...)</span>
-                                )}
+                          <div
+                            key={node.id}
+                            style={{ marginBottom: '1rem', transition: 'all 0.25s ease' }}
+                            onMouseEnter={() => setHoveredNodeId(node.id)}
+                            onMouseLeave={() => setHoveredNodeId(null)}
+                          >
+                            <div
+                              className="node-card"
+                              onClick={() => setPinnedNodeMetricsId(prev => prev === node.id ? null : node.id)}
+                              style={{
+                                opacity: isOnBreak ? 0.75 : 1,
+                                cursor: 'pointer',
+                                transform: showMetrics ? 'translateY(-3px)' : 'none',
+                                borderColor: showMetrics ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.05)',
+                                boxShadow: showMetrics ? '0 6px 20px rgba(6, 182, 212, 0.18)' : 'none',
+                                transition: 'all 0.25s ease'
+                              }}
+                            >
+                              <div>
+                                <div className="node-name">
+                                  <span
+                                    className="nav-live-dot"
+                                    style={{
+                                      backgroundColor: isOnBreak ? 'var(--accent-amber)' : (isOffline && !isMaster ? '#ef4444' : 'var(--accent-emerald)'),
+                                      boxShadow: isOnBreak ? '0 0 8px var(--accent-amber)' : (isOffline && !isMaster ? '0 0 8px rgba(239, 68, 68, 0.5)' : '0 0 8px var(--accent-emerald)')
+                                    }}
+                                  />
+                                  <span>{node.name}</span>
+                                  {isOnBreak && (
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', marginLeft: '0.3rem' }}>(Free for Local Use)</span>
+                                  )}
+                                  {isOffline && !isOnBreak && !isMaster && (
+                                    <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: '0.3rem' }}>(Waiting for worker script...)</span>
+                                  )}
+                                  <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', borderRadius: '4px', background: 'rgba(6, 182, 212, 0.12)', color: 'var(--accent-cyan)', border: '1px solid rgba(6, 182, 212, 0.25)', marginLeft: '0.4rem' }}>
+                                    {showMetrics ? '📊 Tap to collapse' : '📊 Tap for Pie Chart'}
+                                  </span>
+                                </div>
+                                <div className="node-specs" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
+                                  <span>{node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os} {node.ipAddress ? `• IP: ${node.ipAddress}` : ''}</span>
+                                  <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: node.pythonAvailable !== false ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: node.pythonAvailable !== false ? '#22c55e' : '#ef4444', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                    🐍 {node.pythonVersion || (node.pythonAvailable !== false ? 'Python 3' : 'No Python')}
+                                  </span>
+                                  <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: node.javaAvailable ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: node.javaAvailable ? '#22c55e' : '#ef4444', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                    ☕ {node.javaVersion || (node.javaAvailable ? 'Java' : 'No Java')}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="node-specs" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
-                                <span>{node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os} {node.ipAddress ? `• IP: ${node.ipAddress}` : ''}</span>
-                                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: node.pythonAvailable !== false ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: node.pythonAvailable !== false ? '#22c55e' : '#ef4444', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                  🐍 {node.pythonVersion || (node.pythonAvailable !== false ? 'Python 3' : 'No Python')}
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }} onClick={(e) => e.stopPropagation()}>
+                                <span className={isOnBreak ? 'status-badge-queued' : (isOffline && !isMaster ? 'status-badge-offline' : 'status-badge-online')}>
+                                  {node.status}
                                 </span>
-                                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', background: node.javaAvailable ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: node.javaAvailable ? '#22c55e' : '#ef4444', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                  ☕ {node.javaVersion || (node.javaAvailable ? 'Java' : 'No Java')}
-                                </span>
+
+                                {/* Break / Resume Button */}
+                                {!isMaster && (
+                                  <button
+                                    type="button"
+                                    className="node-action-btn"
+                                    onClick={() => handleToggleNodeBreak(node.id)}
+                                    title={isOnBreak ? 'Resume Node for Workloads' : 'Take Break (Free machine for local lab tasks)'}
+                                  >
+                                    {isOnBreak ? <Play size={14} color="var(--accent-emerald)" /> : <Pause size={14} color="var(--accent-amber)" />}
+                                    <span>{isOnBreak ? 'Resume' : 'Break'}</span>
+                                  </button>
+                                )}
+
+                                {/* Remove Node Button */}
+                                {!isMaster && (
+                                  <button
+                                    type="button"
+                                    className="node-action-btn delete"
+                                    onClick={() => handleRemoveNode(node.id)}
+                                    title="Permanently remove node from cluster"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                              <span className={isOnBreak ? 'status-badge-queued' : (isOffline && !isMaster ? 'status-badge-offline' : 'status-badge-online')}>
-                                {node.status}
-                              </span>
+                            {/* F-4: Pop-up Box below node with 3-color Pie Chart and Clickable Process Breakdown */}
+                            {showMetrics && (
+                              <div
+                                style={{
+                                  marginTop: '-0.35rem',
+                                  padding: '1.2rem',
+                                  background: 'rgba(15, 23, 42, 0.95)',
+                                  backdropFilter: 'blur(16px)',
+                                  borderRadius: '12px',
+                                  border: '1px solid rgba(6, 182, 212, 0.3)',
+                                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.5)',
+                                  animation: 'fadeIn 0.2s ease-out'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '0.5rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--accent-cyan)' }}>
+                                    <Activity size={16} />
+                                    <span>Resource Telemetry & Capacity Breakdown</span>
+                                  </div>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                                    Total: {totalMem} GB RAM &bull; {node.cores} Cores
+                                  </span>
+                                </div>
 
-                              {/* Break / Resume Button */}
-                              {!isMaster && (
-                                <button
-                                  type="button"
-                                  className="node-action-btn"
-                                  onClick={() => handleToggleNodeBreak(node.id)}
-                                  title={isOnBreak ? 'Resume Node for Workloads' : 'Take Break (Free machine for local lab tasks)'}
-                                >
-                                  {isOnBreak ? <Play size={14} color="var(--accent-emerald)" /> : <Pause size={14} color="var(--accent-amber)" />}
-                                  <span>{isOnBreak ? 'Resume' : 'Break'}</span>
-                                </button>
-                              )}
+                                <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '1.2rem', alignItems: 'center' }}>
+                                  {/* 3-Color Donut Chart */}
+                                  <div style={{ width: '130px', height: '130px', position: 'relative' }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <PieChart>
+                                        <Tooltip
+                                          formatter={(val, name, item) => [item.payload.displayVal, name]}
+                                          contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', fontSize: '0.75rem' }}
+                                        />
+                                        <Pie
+                                          data={pieData}
+                                          innerRadius={36}
+                                          outerRadius={58}
+                                          paddingAngle={3}
+                                          dataKey="value"
+                                          cursor="pointer"
+                                          onClick={(entry) => {
+                                            if (entry.name === 'Process Occupied') {
+                                              setActiveJobDetailsNodeId(prev => prev === node.id ? null : node.id);
+                                            }
+                                          }}
+                                        >
+                                          {pieData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.color} />
+                                          ))}
+                                        </Pie>
+                                      </PieChart>
+                                    </ResponsiveContainer>
+                                  </div>
 
-                              {/* Remove Node Button */}
-                              {!isMaster && (
-                                <button
-                                  type="button"
-                                  className="node-action-btn delete"
-                                  onClick={() => handleRemoveNode(node.id)}
-                                  title="Permanently remove node from cluster"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                            </div>
+                                  {/* 3-Color Interactive Legend */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    {/* 1. Free Capacity */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0.6rem', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem' }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                                        <span>Available Capacity</span>
+                                      </div>
+                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: '#10b981', fontWeight: 600 }}>{freeGb} GB</span>
+                                    </div>
+
+                                    {/* 2. Process Occupied (Clickable to view active jobs) */}
+                                    <div
+                                      onClick={() => setActiveJobDetailsNodeId(prev => prev === node.id ? null : node.id)}
+                                      style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '0.35rem 0.6rem',
+                                        borderRadius: '6px',
+                                        background: 'rgba(245, 158, 11, 0.12)',
+                                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem' }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} />
+                                        <span style={{ fontWeight: 600, color: '#fcd34d' }}>Process Occupied</span>
+                                        <span style={{ fontSize: '0.68rem', color: 'var(--accent-amber)', textDecoration: 'underline' }}>
+                                          ({activeJobDetailsNodeId === node.id ? 'Hide' : 'Click to inspect'})
+                                        </span>
+                                      </div>
+                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: '#f59e0b', fontWeight: 700 }}>
+                                        {occupiedGb} GB ({activeNodeJobs.length} active)
+                                      </span>
+                                    </div>
+
+                                    {/* 3. System Reserve */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0.6rem', borderRadius: '6px', background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem' }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1' }} />
+                                        <span>System Reserve</span>
+                                      </div>
+                                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: '#818cf8', fontWeight: 600 }}>{reservedGb} GB</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Active Process Drilldown Table (appears when clicking occupied slice) */}
+                                {activeJobDetailsNodeId === node.id && (
+                                  <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px dashed rgba(245, 158, 11, 0.3)' }}>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fcd34d', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+                                      <span>Running Processes on {node.name}</span>
+                                      <span>Total: {activeNodeJobs.length} active</span>
+                                    </div>
+                                    {activeNodeJobs.length === 0 ? (
+                                      <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', fontStyle: 'italic', padding: '0.4rem 0' }}>
+                                        No active jobs currently allocated to this node. Node is ready to accept queued workloads.
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                        {activeNodeJobs.map(job => (
+                                          <div
+                                            key={job.jobId}
+                                            style={{
+                                              display: 'flex',
+                                              justifyContent: 'space-between',
+                                              alignItems: 'center',
+                                              padding: '0.4rem 0.6rem',
+                                              borderRadius: '6px',
+                                              background: 'rgba(255, 255, 255, 0.04)',
+                                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                                              fontSize: '0.74rem'
+                                            }}
+                                          >
+                                            <div>
+                                              <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{job.jobName}</span>
+                                              <span style={{ marginLeft: '0.4rem', color: 'var(--accent-cyan)' }}>({job.language})</span>
+                                              <span style={{ marginLeft: '0.4rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>[{job.jobId?.slice(0, 8)}]</span>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                              <span>{job.cpuCores}c &bull; {job.memoryMb}MB</span>
+                                              <span style={{ padding: '0.1rem 0.35rem', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', fontWeight: 600, fontSize: '0.68rem' }}>
+                                                {job.status}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
