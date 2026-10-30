@@ -204,17 +204,168 @@ print("Computation completed successfully on worker node.")
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const fileInputRef = useRef(null);
 
+  // F-5: Resumable Chunked Upload Engine
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB chunks
+  const [uploadState, setUploadState] = useState({
+    fileId: null,
+    totalChunks: 0,
+    uploadedChunks: [],
+    currentChunk: 0,
+    percent: 0,
+    status: 'idle', // 'idle' | 'uploading' | 'completed' | 'retrying' | 'error'
+    bytesUploaded: 0,
+    totalBytes: 0,
+    retryCount: 0,
+    errorMsg: null
+  });
+  const uploadAbortControllerRef = useRef(null);
+
+  const startResumableUpload = async (file, fileId, totalChunks) => {
+    if (uploadAbortControllerRef.current) {
+      uploadAbortControllerRef.current.abort();
+    }
+    uploadAbortControllerRef.current = new AbortController();
+    const signal = uploadAbortControllerRef.current.signal;
+
+    setUploadState({
+      fileId,
+      totalChunks,
+      uploadedChunks: [],
+      currentChunk: 0,
+      percent: 0,
+      status: 'uploading',
+      bytesUploaded: 0,
+      totalBytes: file.size,
+      retryCount: 0,
+      errorMsg: null
+    });
+
+    let alreadyUploaded = [];
+    try {
+      const statusRes = await fetch(`/api/jobs/upload-status/${fileId}`);
+      if (statusRes.ok) {
+        const s = await statusRes.json();
+        if (s.complete) {
+          setUploadState(prev => ({
+            ...prev,
+            status: 'completed',
+            percent: 100,
+            uploadedChunks: s.receivedChunks || []
+          }));
+          setJobForm(prev => ({ ...prev, sourceCode: 'pkg:' + fileId }));
+          return;
+        }
+        if (Array.isArray(s.receivedChunks)) {
+          alreadyUploaded = s.receivedChunks;
+        }
+      }
+    } catch (e) {
+      // proceed from 0
+    }
+
+    let uploadedIndices = [...alreadyUploaded];
+
+    for (let i = 0; i < totalChunks; i++) {
+      if (signal.aborted) return;
+      if (uploadedIndices.includes(i)) continue;
+
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(file.size, start + CHUNK_SIZE);
+      const chunkBlob = file.slice(start, end);
+
+      let success = false;
+      let attempt = 0;
+      const maxAttempts = 5;
+
+      while (!success && attempt < maxAttempts) {
+        if (signal.aborted) return;
+        try {
+          attempt++;
+          const formData = new FormData();
+          formData.append('fileId', fileId);
+          formData.append('chunkIndex', i);
+          formData.append('totalChunks', totalChunks);
+          formData.append('fileName', file.name);
+          formData.append('totalSize', file.size);
+          formData.append('chunk', chunkBlob, `${file.name}.part${i}`);
+
+          const res = await fetch('/api/jobs/upload-chunk', {
+            method: 'POST',
+            body: formData,
+            signal
+          });
+
+          if (!res.ok) {
+            throw new Error(`Server returned HTTP ${res.status}`);
+          }
+
+          const data = await res.json();
+          success = true;
+          uploadedIndices.push(i);
+
+          const pct = Math.round((uploadedIndices.length / totalChunks) * 100);
+          setUploadState(prev => ({
+            ...prev,
+            currentChunk: i + 1,
+            uploadedChunks: uploadedIndices,
+            percent: pct,
+            status: pct >= 100 || data.complete ? 'completed' : 'uploading',
+            bytesUploaded: Math.min(file.size, (i + 1) * CHUNK_SIZE),
+            retryCount: 0,
+            errorMsg: null
+          }));
+
+          if (data.complete || pct >= 100) {
+            setJobForm(prev => ({ ...prev, sourceCode: 'pkg:' + fileId }));
+            addNotification(
+              'Upload Assembled',
+              `Package "${file.name}" assembled (${totalChunks} chunks verified on cluster).`,
+              'info'
+            );
+          }
+        } catch (err) {
+          if (signal.aborted || err.name === 'AbortError') return;
+
+          if (attempt >= maxAttempts) {
+            setUploadState(prev => ({
+              ...prev,
+              status: 'error',
+              errorMsg: `Upload halted after ${maxAttempts} retries: ${err.message}`
+            }));
+            return;
+          }
+
+          setUploadState(prev => ({
+            ...prev,
+            status: 'retrying',
+            currentChunk: i,
+            retryCount: attempt,
+            errorMsg: `Wi-Fi / network drop detected. Auto-retrying chunk ${i + 1} from checkpoint in 2s (Attempt ${attempt}/${maxAttempts})...`
+          }));
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    }
+  };
+
   const handleFileProcess = (file) => {
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();
     const isZip = ext === 'zip' || ext === 'tar' || ext === 'gz';
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1;
+    const fileId = 'pkg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
 
     setSelectedFile({
+      fileObj: file,
       name: file.name,
-      size: (file.size / 1024).toFixed(1) + ' KB',
+      size: file.size > 1024 * 1024
+        ? (file.size / (1024 * 1024)).toFixed(2) + ' MB'
+        : (file.size / 1024).toFixed(1) + ' KB',
       rawSize: file.size,
       extension: ext,
-      isZip: isZip
+      isZip: isZip,
+      fileId: fileId,
+      totalChunks: totalChunks
     });
 
     if (!jobForm.jobName || jobForm.jobName.trim() === '' || jobForm.jobName.startsWith('Workload-')) {
@@ -222,15 +373,8 @@ print("Computation completed successfully on worker node.")
       setJobForm(prev => ({ ...prev, jobName: cleanName }));
     }
 
-    if (isZip) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setJobForm(prev => ({
-          ...prev,
-          sourceCode: e.target.result
-        }));
-      };
-      reader.readAsDataURL(file);
+    if (isZip || file.size > CHUNK_SIZE) {
+      startResumableUpload(file, fileId, totalChunks);
     } else {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -243,6 +387,7 @@ print("Computation completed successfully on worker node.")
         }));
       };
       reader.readAsText(file);
+      startResumableUpload(file, fileId, totalChunks);
     }
   };
 
@@ -274,7 +419,22 @@ print("Computation completed successfully on worker node.")
   };
 
   const handleClearSelectedFile = () => {
+    if (uploadAbortControllerRef.current) {
+      uploadAbortControllerRef.current.abort();
+    }
     setSelectedFile(null);
+    setUploadState({
+      fileId: null,
+      totalChunks: 0,
+      uploadedChunks: [],
+      currentChunk: 0,
+      percent: 0,
+      status: 'idle',
+      bytesUploaded: 0,
+      totalBytes: 0,
+      retryCount: 0,
+      errorMsg: null
+    });
     setJobForm(prev => ({ ...prev, sourceCode: '' }));
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -2334,63 +2494,149 @@ print("Computation completed successfully on worker node.")
                           /* Selected File Card */
                           <div
                             style={{
-                              border: '1px solid rgba(56, 189, 248, 0.4)',
+                              border: uploadState.status === 'retrying'
+                                ? '1px solid rgba(245, 158, 11, 0.6)'
+                                : uploadState.status === 'error'
+                                ? '1px solid rgba(239, 68, 68, 0.6)'
+                                : uploadState.status === 'completed'
+                                ? '1px solid rgba(16, 185, 129, 0.5)'
+                                : '1px solid rgba(56, 189, 248, 0.4)',
                               background: 'rgba(15, 23, 42, 0.8)',
                               borderRadius: '12px',
                               padding: '1.25rem',
                               display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              flexWrap: 'wrap',
+                              flexDirection: 'column',
                               gap: '1rem'
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                              <div style={{ padding: '0.75rem', borderRadius: '10px', background: selectedFile.isZip ? 'rgba(234, 179, 8, 0.15)' : 'rgba(56, 189, 248, 0.15)', color: selectedFile.isZip ? '#eab308' : 'var(--accent-cyan)' }}>
-                                {selectedFile.isZip ? <FolderArchive size={28} /> : <FileCode size={28} />}
-                              </div>
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                  <span style={{ fontWeight: '600', color: 'var(--text-main)', fontSize: '0.95rem' }}>
-                                    {selectedFile.name}
-                                  </span>
-                                  <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '4px', background: selectedFile.isZip ? 'rgba(234, 179, 8, 0.2)' : 'rgba(56, 189, 248, 0.2)', color: selectedFile.isZip ? '#eab308' : '#38bdf8' }}>
-                                    {selectedFile.isZip ? '📦 ZIP Multi-File Package' : selectedFile.extension === 'java' ? '☕ Java File' : '🐍 Python Script'}
-                                  </span>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <div style={{ padding: '0.75rem', borderRadius: '10px', background: selectedFile.isZip ? 'rgba(234, 179, 8, 0.15)' : 'rgba(56, 189, 248, 0.15)', color: selectedFile.isZip ? '#eab308' : 'var(--accent-cyan)' }}>
+                                  {selectedFile.isZip ? <FolderArchive size={28} /> : <FileCode size={28} />}
                                 </div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
-                                  Size: {selectedFile.size} • Ready for distribution to compute nodes
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <span style={{ fontWeight: '600', color: 'var(--text-main)', fontSize: '0.95rem' }}>
+                                      {selectedFile.name}
+                                    </span>
+                                    <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '4px', background: selectedFile.isZip ? 'rgba(234, 179, 8, 0.2)' : 'rgba(56, 189, 248, 0.2)', color: selectedFile.isZip ? '#eab308' : '#38bdf8' }}>
+                                      {selectedFile.isZip ? '📦 ZIP Multi-File Package' : selectedFile.extension === 'java' ? '☕ Java File' : '🐍 Python Script'}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
+                                    Size: {selectedFile.size} • {selectedFile.totalChunks > 1 ? `${selectedFile.totalChunks} Chunks (5MB Resumable)` : 'Single Chunk'}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              {!selectedFile.isZip && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {!selectedFile.isZip && (
+                                  <button
+                                    type="button"
+                                    className="quota-adjust-btn"
+                                    onClick={() => setWorkloadInputMode('editor')}
+                                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', color: '#38bdf8' }}
+                                  >
+                                    ✏️ Edit Code
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   className="quota-adjust-btn"
-                                  onClick={() => setWorkloadInputMode('editor')}
-                                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', color: '#38bdf8' }}
+                                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
                                 >
-                                  ✏️ Edit Code
+                                  Replace File
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                className="quota-adjust-btn"
-                                onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                              >
-                                Replace File
-                              </button>
-                              <button
-                                type="button"
-                                className="quota-adjust-btn"
-                                onClick={handleClearSelectedFile}
-                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', color: '#ef4444' }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                                <button
+                                  type="button"
+                                  className="quota-adjust-btn"
+                                  onClick={handleClearSelectedFile}
+                                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', color: '#ef4444' }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* F-5: Resumable Chunked Upload Progress & Status Bar */}
+                            <div style={{ padding: '0.85rem 1rem', background: 'rgba(0, 0, 0, 0.3)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', fontSize: '0.82rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  {uploadState.status === 'completed' && <CheckCircle2 size={15} color="#10b981" />}
+                                  {uploadState.status === 'uploading' && <RefreshCw size={15} color="#38bdf8" className="spin" />}
+                                  {uploadState.status === 'retrying' && <AlertTriangle size={15} color="#f59e0b" />}
+                                  {uploadState.status === 'error' && <AlertCircle size={15} color="#ef4444" />}
+                                  <span style={{
+                                    fontWeight: 600,
+                                    color: uploadState.status === 'completed' ? '#34d399'
+                                      : uploadState.status === 'retrying' ? '#fbbf24'
+                                      : uploadState.status === 'error' ? '#f87171'
+                                      : '#67e8f9'
+                                  }}>
+                                    {uploadState.status === 'completed' ? 'Package Assembled & Verified'
+                                      : uploadState.status === 'retrying' ? `Auto-Retrying Chunk ${uploadState.currentChunk + 1}...`
+                                      : uploadState.status === 'error' ? 'Upload Interrupted'
+                                      : `Uploading Chunk ${uploadState.currentChunk} of ${uploadState.totalChunks}`}
+                                  </span>
+                                </div>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: uploadState.status === 'completed' ? '#34d399' : 'var(--accent-cyan)' }}>
+                                  {uploadState.percent}%
+                                </span>
+                              </div>
+
+                              {/* Progress Track */}
+                              <div style={{ width: '100%', height: '8px', background: 'rgba(255, 255, 255, 0.07)', borderRadius: '999px', overflow: 'hidden' }}>
+                                <div
+                                  style={{
+                                    width: `${uploadState.percent}%`,
+                                    height: '100%',
+                                    background: uploadState.status === 'completed'
+                                      ? 'linear-gradient(90deg, #10b981, #059669)'
+                                      : uploadState.status === 'retrying'
+                                      ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+                                      : uploadState.status === 'error'
+                                      ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+                                      : 'linear-gradient(90deg, #06b6d4, #3b82f6)',
+                                    transition: 'width 0.3s ease',
+                                    borderRadius: '999px'
+                                  }}
+                                />
+                              </div>
+
+                              {/* Diagnostic / Detail footer */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.45rem', fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                                <span>
+                                  {uploadState.status === 'completed'
+                                    ? `Checkpoint: All ${uploadState.totalChunks} chunks saved • File ready for compute distribution`
+                                    : uploadState.status === 'retrying'
+                                    ? uploadState.errorMsg
+                                    : uploadState.status === 'error'
+                                    ? uploadState.errorMsg
+                                    : `Uploaded ${((uploadState.bytesUploaded || 0) / (1024 * 1024)).toFixed(1)} MB of ${((uploadState.totalBytes || 1) / (1024 * 1024)).toFixed(1)} MB • Checkpoint autosaved`}
+                                </span>
+                                {(uploadState.status === 'retrying' || uploadState.status === 'error') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startResumableUpload(selectedFile.fileObj, selectedFile.fileId, selectedFile.totalChunks)}
+                                    style={{
+                                      background: 'rgba(245, 158, 11, 0.2)',
+                                      border: '1px solid rgba(245, 158, 11, 0.5)',
+                                      color: '#fbbf24',
+                                      padding: '0.15rem 0.5rem',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.72rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.25rem'
+                                    }}
+                                  >
+                                    <RefreshCw size={11} />
+                                    <span>Retry Now</span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         )}
@@ -2545,13 +2791,19 @@ print("Computation completed successfully on worker node.")
                 <button
                   type="submit"
                   className="btn-submit-academic"
-                  disabled={wouldExceedQuota || isSubmittingJob}
+                  disabled={
+                    wouldExceedQuota ||
+                    isSubmittingJob ||
+                    (selectedFile && (uploadState.status === 'uploading' || uploadState.status === 'retrying'))
+                  }
                   style={{ marginTop: '1.5rem' }}
                 >
                   <PlusCircle size={18} />
                   <span>
                     {isSubmittingJob
                       ? 'Submitting to Queue...'
+                      : (selectedFile && (uploadState.status === 'uploading' || uploadState.status === 'retrying'))
+                      ? `Uploading Package Chunks (${uploadState.percent}%)...`
                       : wouldExceedQuota
                       ? 'Blocked: Quota Exceeded'
                       : uploadedFiles.length > 0

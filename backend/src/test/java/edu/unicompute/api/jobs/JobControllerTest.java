@@ -29,6 +29,9 @@ class JobControllerTest {
     @MockitoBean
     private JobService jobService;
 
+    @MockitoBean
+    private edu.unicompute.api.uploads.UploadService uploadService;
+
     @Test
     @DisplayName("POST /api/jobs/validate returns 200 for valid input")
     void testValidateEndpoint_Valid() throws Exception {
@@ -163,5 +166,43 @@ class JobControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Job not found with ID: " + nonExistentId));
+    }
+
+    @Test
+    @DisplayName("POST /api/jobs/upload-chunk saves chunk and returns status")
+    void testUploadChunkMultipart() throws Exception {
+        org.springframework.mock.web.MockMultipartFile part = new org.springframework.mock.web.MockMultipartFile(
+                "chunk", "file.zip.part0", MediaType.APPLICATION_OCTET_STREAM_VALUE, "dummy_data".getBytes());
+
+        edu.unicompute.api.uploads.ChunkUploadResponse resp = new edu.unicompute.api.uploads.ChunkUploadResponse(
+                "pkg-123", 0, 2, 1, 10, false, null, "Chunk 0 saved");
+        when(uploadService.saveChunk(any(), any(int.class), any(int.class), any(), any(long.class), any()))
+                .thenReturn(resp);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/api/jobs/upload-chunk")
+                        .file(part)
+                        .param("fileId", "pkg-123")
+                        .param("chunkIndex", "0")
+                        .param("totalChunks", "2")
+                        .param("fileName", "file.zip")
+                        .param("totalSize", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fileId").value("pkg-123"))
+                .andExpect(jsonPath("$.chunksReceived").value(1))
+                .andExpect(jsonPath("$.complete").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/jobs/upload-status/{fileId} returns checkpoint status")
+    void testGetUploadStatus() throws Exception {
+        edu.unicompute.api.uploads.UploadStatusResponse statusResp = new edu.unicompute.api.uploads.UploadStatusResponse(
+                "pkg-123", "file.zip", 2, 1, List.of(0), 0, 10, 20, false, null);
+        when(uploadService.getUploadStatus("pkg-123")).thenReturn(statusResp);
+
+        mockMvc.perform(get("/api/jobs/upload-status/pkg-123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fileId").value("pkg-123"))
+                .andExpect(jsonPath("$.lastCheckpointChunk").value(0))
+                .andExpect(jsonPath("$.complete").value(false));
     }
 }

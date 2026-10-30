@@ -41,6 +41,7 @@ public class JobService {
     private final JobRepository jobRepository;
     private final JobExecutionRepository executionRepository;
     private final UserService userService;
+    private final edu.unicompute.api.uploads.UploadService uploadService;
     private final ReentrantLock schedulingLock = new ReentrantLock();
 
     @Autowired
@@ -48,16 +49,26 @@ public class JobService {
             NodeService nodeService,
             @Autowired(required = false) JobRepository jobRepository,
             @Autowired(required = false) JobExecutionRepository executionRepository,
-            @Autowired(required = false) UserService userService) {
+            @Autowired(required = false) UserService userService,
+            @Autowired(required = false) edu.unicompute.api.uploads.UploadService uploadService) {
         this.nodeService = nodeService;
         this.jobRepository = jobRepository;
         this.executionRepository = executionRepository;
         this.userService = userService;
+        this.uploadService = uploadService;
         initFromDatabase();
     }
 
+    public JobService(
+            NodeService nodeService,
+            JobRepository jobRepository,
+            JobExecutionRepository executionRepository,
+            UserService userService) {
+        this(nodeService, jobRepository, executionRepository, userService, null);
+    }
+
     public JobService(NodeService nodeService) {
-        this(nodeService, null, null, null);
+        this(nodeService, null, null, null, null);
     }
 
     private void initFromDatabase() {
@@ -125,11 +136,17 @@ public class JobService {
             }
         }
 
+        String resolvedSourceCode = request.sourceCode();
+        if (resolvedSourceCode != null && resolvedSourceCode.startsWith("pkg:") && uploadService != null) {
+            String fileId = resolvedSourceCode.substring(4).trim();
+            resolvedSourceCode = uploadService.getAssembledFileDataUrl(fileId).orElse(resolvedSourceCode);
+        }
+
         Job job = new Job(
                 jobId,
                 request.jobName(),
                 request.language().toUpperCase(),
-                request.sourceCode(),
+                resolvedSourceCode,
                 request.cpuCores(),
                 request.memoryMb(),
                 request.storageMb(),
