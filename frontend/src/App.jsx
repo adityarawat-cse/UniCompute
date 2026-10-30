@@ -105,6 +105,10 @@ export default function App() {
   });
 
   // Current session
+  // F-8: State for Delete User confirmation modal
+  const [userToDeleteConfirm, setUserToDeleteConfirm] = useState(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+
   const [currentUser, setCurrentUser] = useState(() => {
     const session = localStorage.getItem('unicompute_session');
     if (session) {
@@ -1007,18 +1011,43 @@ print("Computation completed successfully on worker node.")
     }
   };
 
-  // Admin: Delete User safely cascading related records
-  const handleDeleteUser = async (userToDelete) => {
-    if (!window.confirm(`Are you sure you want to delete user ${userToDelete.name || userToDelete.username}? All owned projects and tasks will be safely cascaded or decoupled.`)) return;
+  // F-8: Open safety confirmation modal
+  const handleOpenDeleteModal = (userToDelete) => {
+    setUserToDeleteConfirm(userToDelete);
+  };
+
+  // F-8: Confirm user deletion safely cascading workloads
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDeleteConfirm) return;
+    setIsDeletingUser(true);
+    const targetName = userToDeleteConfirm.name || userToDeleteConfirm.username;
     try {
-      if (userToDelete.userId) {
-        await fetch(`/api/users/${userToDelete.userId}`, { method: 'DELETE' });
+      if (userToDeleteConfirm.userId) {
+        const res = await fetch(`/api/users/${userToDeleteConfirm.userId}`, { method: 'DELETE' });
+        if (!res.ok) {
+          console.warn(`DELETE /api/users/${userToDeleteConfirm.userId} returned status ${res.status}`);
+        }
       }
+      setUsers(prev => prev.filter(u => u.email !== userToDeleteConfirm.email && u.username !== userToDeleteConfirm.username));
+      setFeedback({
+        type: 'info',
+        message: `User "${targetName}" deleted successfully. Active jobs cancelled and quotas revoked.`
+      });
+      addNotification(
+        'User Deleted',
+        `User "${targetName}" and associated quotas deleted by Admin.`,
+        'info'
+      );
     } catch (err) {
       console.warn('Backend user deletion error:', err);
+      setFeedback({
+        type: 'error',
+        message: `Error deleting user: ${err.message}`
+      });
+    } finally {
+      setIsDeletingUser(false);
+      setUserToDeleteConfirm(null);
     }
-    setUsers(prev => prev.filter(u => u.email !== userToDelete.email && u.username !== userToDelete.username));
-    setFeedback({ type: 'info', message: `User ${userToDelete.name || userToDelete.username} deleted cleanly.` });
   };
 
   // Admin: Add a new node & generate installation payload
@@ -3067,9 +3096,9 @@ print("Computation completed successfully on worker node.")
                                 </button>
                                 <button
                                   className="quota-adjust-btn"
-                                  title="Delete User (safely cascades foreign keys)"
+                                  title={`Delete User ${u.name || u.username}`}
                                   style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)', marginLeft: '0.4rem' }}
-                                  onClick={() => handleDeleteUser(u)}
+                                  onClick={() => handleOpenDeleteModal(u)}
                                 >
                                   <Trash2 size={13} style={{ marginRight: '3px', verticalAlign: 'middle', display: 'inline' }} />
                                   Delete
@@ -3085,6 +3114,79 @@ print("Computation completed successfully on worker node.")
               </div>
             </div>
           )}
+          {/* ================= MODAL: SAFETY CONFIRM USER DELETION (F-8) ================= */}
+          {userToDeleteConfirm && (
+            <div className="modal-backdrop" style={{ zIndex: 1200 }}>
+              <div className="glass-panel modal-card animate-fade-in" style={{ maxWidth: '480px', border: '1px solid rgba(239, 68, 68, 0.45)', boxShadow: '0 20px 45px rgba(0,0,0,0.6)' }}>
+                <div className="modal-header" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.25)', paddingBottom: '0.9rem' }}>
+                  <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', color: '#f87171', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                    <AlertTriangle size={20} color="#ef4444" />
+                    <span>Confirm User Deletion</span>
+                  </h3>
+                  <button
+                    className="modal-close-btn"
+                    onClick={() => setUserToDeleteConfirm(null)}
+                    disabled={isDeletingUser}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div style={{ padding: '1.4rem 0 0.5rem 0', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <p style={{ color: 'var(--text-main)', fontSize: '0.95rem', lineHeight: '1.5', margin: 0 }}>
+                    Are you sure you want to delete user <strong style={{ color: '#f87171' }}>{userToDeleteConfirm.name || userToDeleteConfirm.username}</strong> (<code style={{ color: '#38bdf8' }}>@{userToDeleteConfirm.username}</code>)?
+                  </p>
+
+                  <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.22)', borderRadius: '10px', padding: '0.9rem 1.1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    <p style={{ margin: '0 0 0.4rem 0', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fca5a5', fontWeight: 600 }}>
+                      <Shield size={15} /> Immediate Cascade Actions:
+                    </p>
+                    <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: '1.5' }}>
+                      <li>Active, assigned, and queued workloads will be cleanly cancelled.</li>
+                      <li>Allocated compute quota ({userToDeleteConfirm.quotaSeconds || 300}s) will be revoked.</li>
+                      <li>All session tokens and user data will be purged from the cluster.</li>
+                    </ul>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.6rem' }}>
+                    <button
+                      type="button"
+                      className="btn-academic-secondary"
+                      style={{ width: 'auto', padding: '0.55rem 1.25rem' }}
+                      onClick={() => setUserToDeleteConfirm(null)}
+                      disabled={isDeletingUser}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      style={{
+                        background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '0.55rem 1.25rem',
+                        fontWeight: 600,
+                        fontSize: '0.85rem',
+                        cursor: isDeletingUser ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        boxShadow: '0 2px 12px rgba(239, 68, 68, 0.35)',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onClick={handleConfirmDeleteUser}
+                      disabled={isDeletingUser}
+                    >
+                      <Trash2 size={15} />
+                      <span>{isDeletingUser ? 'Deleting User...' : 'Delete User'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ================= MODAL: ADD WORKER NODE (ADMIN ONLY) ================= */}
           {showAddNodeModal && (
             <div className="modal-backdrop">

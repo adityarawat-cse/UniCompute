@@ -411,6 +411,19 @@ public class JobService {
         }
     }
 
+    public void cleanupUserWorkloads(Long userId) {
+        if (userId == null) return;
+        for (Job job : jobs.values()) {
+            if (userId.equals(job.userId())) {
+                if (job.status() == JobStatus.QUEUED || job.status() == JobStatus.RUNNING
+                        || job.status() == JobStatus.SUSPENDED || job.status() == JobStatus.ASSIGNED) {
+                    cancelJob(job.jobId());
+                    log.info("B-7 Delete User: Cancelled active job {} for deleted user {}", job.jobId(), userId);
+                }
+            }
+        }
+    }
+
     public void checkLeaseTimeouts() {
         Instant now = Instant.now();
         for (Job job : jobs.values()) {

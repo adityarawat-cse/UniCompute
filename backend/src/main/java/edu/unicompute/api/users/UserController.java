@@ -3,6 +3,7 @@ package edu.unicompute.api.users;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -13,15 +14,23 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import edu.unicompute.api.common.ResourceNotFoundException;
+import edu.unicompute.api.jobs.JobService;
 import jakarta.validation.Valid;
 
 @RestController
 public class UserController {
 
     private final UserService userService;
+    private final JobService jobService;
+
+    @Autowired
+    public UserController(UserService userService, @Autowired(required = false) JobService jobService) {
+        this.userService = userService;
+        this.jobService = jobService;
+    }
 
     public UserController(UserService userService) {
-        this.userService = userService;
+        this(userService, null);
     }
 
     @PostMapping("/api/auth/register")
@@ -64,6 +73,9 @@ public class UserController {
 
     @DeleteMapping("/api/users/{id}")
     public ResponseEntity<?> deleteUser(@PathVariable Long id) {
+        if (jobService != null) {
+            jobService.cleanupUserWorkloads(id);
+        }
         boolean deleted = userService.deleteUser(id);
         if (deleted) {
             return ResponseEntity.ok(Map.of("message", "User deleted successfully", "userId", id));

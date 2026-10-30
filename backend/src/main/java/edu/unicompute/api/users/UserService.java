@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -20,6 +21,8 @@ public class UserService {
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     private final UserRepository userRepository;
+    private final Map<Long, UserEntity> inMemoryUsers = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong idSequence = new java.util.concurrent.atomic.AtomicLong(100);
 
     @Autowired
     public UserService(@Autowired(required = false) UserRepository userRepository) {
@@ -32,7 +35,34 @@ public class UserService {
     }
 
     private void initDefaultUsers() {
-        if (userRepository == null) return;
+        if (userRepository == null) {
+            UserEntity admin = new UserEntity();
+            admin.setUserId(1L);
+            admin.setUsername("aditya");
+            admin.setEmail("aditya@unicompute.edu");
+            admin.setFullName("Aditya Rawat (Admin)");
+            admin.setPasswordHash(hashPassword("224256"));
+            admin.setRole("ADMIN");
+            admin.setStatus("ACTIVE");
+            admin.setDepartment("Computer Science & Engineering");
+            admin.setDailyQuotaSeconds(10000);
+            admin.setUsedQuotaSeconds(0);
+            inMemoryUsers.put(1L, admin);
+
+            UserEntity student = new UserEntity();
+            student.setUserId(2L);
+            student.setUsername("student");
+            student.setEmail("student@unicompute.edu");
+            student.setFullName("Student Researcher");
+            student.setPasswordHash(hashPassword("student123"));
+            student.setRole("STUDENT");
+            student.setStatus("ACTIVE");
+            student.setDepartment("Computer Science & Engineering");
+            student.setDailyQuotaSeconds(1200);
+            student.setUsedQuotaSeconds(0);
+            inMemoryUsers.put(2L, student);
+            return;
+        }
         try {
             // Seed default admin if missing
             if (userRepository.findByUsername("aditya").isEmpty()) {
@@ -127,62 +157,105 @@ public class UserService {
     }
 
     public List<UserResponse> findAllUsers() {
-        if (userRepository == null) return List.of();
-        return userRepository.findAll().stream()
+        if (userRepository != null) {
+            return userRepository.findAll().stream()
+                    .map(UserResponse::fromEntity)
+                    .toList();
+        }
+        return inMemoryUsers.values().stream()
                 .map(UserResponse::fromEntity)
                 .toList();
     }
 
     public Optional<UserResponse> findById(Long userId) {
-        if (userRepository == null) return Optional.empty();
-        return userRepository.findById(userId).map(UserResponse::fromEntity);
+        if (userId == null) return Optional.empty();
+        if (userRepository != null) {
+            return userRepository.findById(userId).map(UserResponse::fromEntity);
+        }
+        return Optional.ofNullable(inMemoryUsers.get(userId)).map(UserResponse::fromEntity);
     }
 
     public Optional<UserResponse> updateQuota(Long userId, int deltaSeconds) {
-        if (userRepository == null) return Optional.empty();
-        return userRepository.findById(userId).map(u -> {
+        if (userId == null) return Optional.empty();
+        if (userRepository != null) {
+            return userRepository.findById(userId).map(u -> {
+                int current = u.getDailyQuotaSeconds() != null ? u.getDailyQuotaSeconds() : 3600;
+                int updated = Math.max(0, current + deltaSeconds);
+                u.setDailyQuotaSeconds(updated);
+                u.setUpdatedAt(Instant.now());
+                userRepository.save(u);
+                return UserResponse.fromEntity(u);
+            });
+        }
+        UserEntity u = inMemoryUsers.get(userId);
+        if (u != null) {
             int current = u.getDailyQuotaSeconds() != null ? u.getDailyQuotaSeconds() : 3600;
             int updated = Math.max(0, current + deltaSeconds);
             u.setDailyQuotaSeconds(updated);
-            u.setUpdatedAt(Instant.now());
-            userRepository.save(u);
-            return UserResponse.fromEntity(u);
-        });
+            return Optional.of(UserResponse.fromEntity(u));
+        }
+        return Optional.empty();
     }
 
     public boolean recordUsage(Long userId, int seconds) {
-        if (userRepository == null || userId == null) return false;
-        Optional<UserEntity> opt = userRepository.findById(userId);
-        if (opt.isPresent()) {
-            UserEntity u = opt.get();
+        if (userId == null) return false;
+        if (userRepository != null) {
+            Optional<UserEntity> opt = userRepository.findById(userId);
+            if (opt.isPresent()) {
+                UserEntity u = opt.get();
+                int currentUsed = u.getUsedQuotaSeconds() != null ? u.getUsedQuotaSeconds() : 0;
+                u.setUsedQuotaSeconds(currentUsed + seconds);
+                u.setUpdatedAt(Instant.now());
+                userRepository.save(u);
+                return true;
+            }
+            return false;
+        }
+        UserEntity u = inMemoryUsers.get(userId);
+        if (u != null) {
             int currentUsed = u.getUsedQuotaSeconds() != null ? u.getUsedQuotaSeconds() : 0;
             u.setUsedQuotaSeconds(currentUsed + seconds);
-            u.setUpdatedAt(Instant.now());
-            userRepository.save(u);
             return true;
         }
         return false;
     }
 
     public boolean refundUsage(Long userId, int seconds) {
-        if (userRepository == null || userId == null) return false;
-        Optional<UserEntity> opt = userRepository.findById(userId);
-        if (opt.isPresent()) {
-            UserEntity u = opt.get();
+        if (userId == null) return false;
+        if (userRepository != null) {
+            Optional<UserEntity> opt = userRepository.findById(userId);
+            if (opt.isPresent()) {
+                UserEntity u = opt.get();
+                int currentUsed = u.getUsedQuotaSeconds() != null ? u.getUsedQuotaSeconds() : 0;
+                u.setUsedQuotaSeconds(Math.max(0, currentUsed - seconds));
+                u.setUpdatedAt(Instant.now());
+                userRepository.save(u);
+                return true;
+            }
+            return false;
+        }
+        UserEntity u = inMemoryUsers.get(userId);
+        if (u != null) {
             int currentUsed = u.getUsedQuotaSeconds() != null ? u.getUsedQuotaSeconds() : 0;
             u.setUsedQuotaSeconds(Math.max(0, currentUsed - seconds));
-            u.setUpdatedAt(Instant.now());
-            userRepository.save(u);
             return true;
         }
         return false;
     }
 
     public boolean deleteUser(Long userId) {
-        if (userRepository == null || userId == null) return false;
-        if (userRepository.existsById(userId)) {
-            userRepository.deleteById(userId);
-            log.info("Safely deleted user id: {}", userId);
+        if (userId == null) return false;
+        if (userRepository != null) {
+            if (userRepository.existsById(userId)) {
+                userRepository.deleteById(userId);
+                log.info("Safely deleted user id: {}", userId);
+                return true;
+            }
+            return false;
+        }
+        if (inMemoryUsers.containsKey(userId)) {
+            inMemoryUsers.remove(userId);
+            log.info("Safely deleted in-memory user id: {}", userId);
             return true;
         }
         return false;
