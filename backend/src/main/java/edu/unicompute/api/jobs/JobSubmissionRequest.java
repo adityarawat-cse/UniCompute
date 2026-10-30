@@ -35,13 +35,15 @@ public record JobSubmissionRequest(
         @Max(5)
         int priority,
 
-        @NotBlank
-        @Pattern(regexp = "FCFS|SJF|PRIORITY|ROUND_ROBIN")
+        @Pattern(regexp = "FCFS|SJF|PRIORITY|ROUND_ROBIN|AUTO")
         String schedulingAlgorithm
 ) {
     public JobSubmissionRequest {
         if (sourceCode == null) {
             sourceCode = "";
+        }
+        if (schedulingAlgorithm == null || schedulingAlgorithm.isBlank()) {
+            schedulingAlgorithm = "AUTO";
         }
     }
 }

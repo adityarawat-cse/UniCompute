@@ -191,7 +191,7 @@ print("Computation completed successfully on worker node.")
     storageMb: 256,
     maxExecutionTimeSeconds: 30,
     priority: 3,
-    schedulingAlgorithm: 'FCFS'
+    schedulingAlgorithm: 'AUTO'
   });
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
@@ -669,7 +669,7 @@ print("Computation completed successfully on worker node.")
           storageMb: 256,
           maxExecutionTimeSeconds: 30,
           priority: 3,
-          schedulingAlgorithm: 'FCFS'
+          schedulingAlgorithm: 'AUTO'
         });
         setSelectedFile(null);
         setWorkloadInputMode('file');
@@ -1584,23 +1584,6 @@ print("Computation completed successfully on worker node.")
                       >
                         <option value="PYTHON">Python 3.11 Runtime</option>
                         <option value="JAVA">Java 17 / OpenJDK Runtime</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Scheduling Algorithm</label>
-                    <div className="input-icon-wrapper">
-                      <Activity className="input-icon" size={18} />
-                      <select
-                        className="form-select"
-                        value={jobForm.schedulingAlgorithm}
-                        onChange={(e) => setJobForm({ ...jobForm, schedulingAlgorithm: e.target.value })}
-                      >
-                        <option value="FCFS">First-Come, First-Served (FCFS)</option>
-                        <option value="SJF">Shortest Job First (SJF)</option>
-                        <option value="PRIORITY">Priority Preemptive</option>
-                        <option value="ROUND_ROBIN">Round Robin</option>
                       </select>
                     </div>
                   </div>
