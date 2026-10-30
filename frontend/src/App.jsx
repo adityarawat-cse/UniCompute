@@ -190,7 +190,7 @@ print("Computation completed successfully on worker node.")
     memoryMb: 1024,
     storageMb: 256,
     maxExecutionTimeSeconds: 30,
-    priority: 3,
+    priority: 2,
     schedulingAlgorithm: 'AUTO'
   });
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -668,7 +668,7 @@ print("Computation completed successfully on worker node.")
           memoryMb: 1024,
           storageMb: 256,
           maxExecutionTimeSeconds: 30,
-          priority: 3,
+          priority: 2,
           schedulingAlgorithm: 'AUTO'
         });
         setSelectedFile(null);
@@ -1381,6 +1381,21 @@ print("Computation completed successfully on worker node.")
                               </div>
                               <div className="node-specs">
                                 ID: {j.jobId?.slice(0, 8)}... &bull; CPU: {j.cpuCores}c &bull; RAM: {j.memoryMb}MB
+                                {j.priority && (
+                                  <span style={{
+                                    marginLeft: '0.45rem',
+                                    padding: '0.12rem 0.5rem',
+                                    borderRadius: '4px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    letterSpacing: '0.02em',
+                                    background: Number(j.priority) === 3 ? 'rgba(245, 158, 11, 0.15)' : Number(j.priority) === 1 ? 'rgba(148, 163, 184, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                                    color: Number(j.priority) === 3 ? '#f59e0b' : Number(j.priority) === 1 ? '#94a3b8' : '#60a5fa',
+                                    border: Number(j.priority) === 3 ? '1px solid rgba(245, 158, 11, 0.4)' : Number(j.priority) === 1 ? '1px solid rgba(148, 163, 184, 0.3)' : '1px solid rgba(59, 130, 246, 0.4)'
+                                  }}>
+                                    {Number(j.priority) === 3 ? 'HIGH' : Number(j.priority) === 1 ? 'LOW' : 'NORMAL'}
+                                  </span>
+                                )}
                                 {j.assignedNodeName && <span style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}> &bull; Node: {j.assignedNodeName}</span>}
                                 {j.executionDurationMs != null && <span style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}> &bull; {j.executionDurationMs}ms</span>}
                               </div>
@@ -1939,22 +1954,76 @@ print("Computation completed successfully on worker node.")
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label className="form-label">Priority (1 = Low, 5 = Urgent High)</label>
-                    <div className="input-icon-wrapper">
-                      <Shield className="input-icon" size={18} />
-                      <input
-                        type="range"
-                        min="1"
-                        max="5"
-                        style={{ width: '100%', margin: '0.5rem 0' }}
-                        value={jobForm.priority}
-                        onChange={(e) => setJobForm({ ...jobForm, priority: e.target.value })}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      <span>1 (Low)</span>
-                      <span>Current: <strong>{jobForm.priority}</strong></span>
-                      <span>5 (High)</span>
+                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Shield size={16} color="var(--accent-cyan)" />
+                      <span>Priority Tier</span>
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginTop: '0.35rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setJobForm({ ...jobForm, priority: 1 })}
+                        style={{
+                          padding: '0.75rem 1rem',
+                          borderRadius: '8px',
+                          border: Number(jobForm.priority) === 1 ? '2px solid #94a3b8' : '1px solid rgba(148, 163, 184, 0.25)',
+                          background: Number(jobForm.priority) === 1 ? 'rgba(148, 163, 184, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                          color: Number(jobForm.priority) === 1 ? '#f1f5f9' : '#94a3b8',
+                          fontWeight: Number(jobForm.priority) === 1 ? 700 : 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '0.2rem',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.95rem' }}>Low</span>
+                        <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>Batch / background</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setJobForm({ ...jobForm, priority: 2 })}
+                        style={{
+                          padding: '0.75rem 1rem',
+                          borderRadius: '8px',
+                          border: Number(jobForm.priority) === 2 ? '2px solid #3b82f6' : '1px solid rgba(59, 130, 246, 0.25)',
+                          background: Number(jobForm.priority) === 2 ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255, 255, 255, 0.03)',
+                          color: Number(jobForm.priority) === 2 ? '#93c5fd' : '#60a5fa',
+                          fontWeight: Number(jobForm.priority) === 2 ? 700 : 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '0.2rem',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.95rem' }}>Normal</span>
+                        <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>Default priority</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setJobForm({ ...jobForm, priority: 3 })}
+                        style={{
+                          padding: '0.75rem 1rem',
+                          borderRadius: '8px',
+                          border: Number(jobForm.priority) === 3 ? '2px solid #f59e0b' : '1px solid rgba(245, 158, 11, 0.25)',
+                          background: Number(jobForm.priority) === 3 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(255, 255, 255, 0.03)',
+                          color: Number(jobForm.priority) === 3 ? '#fcd34d' : '#f59e0b',
+                          fontWeight: Number(jobForm.priority) === 3 ? 700 : 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '0.2rem',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.95rem' }}>High ⚡</span>
+                        <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>Preemptive urgent</span>
+                      </button>
                     </div>
                   </div>
                 </div>

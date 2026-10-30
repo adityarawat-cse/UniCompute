@@ -69,6 +69,10 @@ public record Job(
                 0
         );
     }
+    public String priorityLabel() {
+        return JobPriority.fromLevel(priority).getLabel();
+    }
+
     public Job withAssigned(String nodeId, String nodeName, Instant leaseExpiresAt) {
         return new Job(
                 jobId, jobName, language, sourceCode, cpuCores, memoryMb, storageMb,

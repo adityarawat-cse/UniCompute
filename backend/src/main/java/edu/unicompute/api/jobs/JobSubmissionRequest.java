@@ -32,7 +32,7 @@ public record JobSubmissionRequest(
         int maxExecutionTimeSeconds,
 
         @Min(1)
-        @Max(5)
+        @Max(3)
         int priority,
 
         @Pattern(regexp = "FCFS|SJF|PRIORITY|ROUND_ROBIN|AUTO")

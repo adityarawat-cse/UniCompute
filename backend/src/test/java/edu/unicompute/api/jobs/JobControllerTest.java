@@ -40,7 +40,7 @@ class JobControllerTest {
                     "memoryMb": 2048,
                     "storageMb": 512,
                     "maxExecutionTimeSeconds": 120,
-                    "priority": 5,
+                    "priority": 3,
                     "schedulingAlgorithm": "PRIORITY"
                 }
                 """;
@@ -50,7 +50,7 @@ class JobControllerTest {
                         .content(validJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.jobName").value("Matrix Multiplication"))
-                .andExpect(jsonPath("$.priority").value(5));
+                .andExpect(jsonPath("$.priority").value(3));
     }
 
     @Test
@@ -98,7 +98,7 @@ class JobControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/jobs returns 400 when priority is invalid (> 5)")
+    @DisplayName("POST /api/jobs returns 400 when priority is invalid (> 3)")
     void testSubmitJob_InvalidPriority() throws Exception {
         String invalidJson = """
                 {
