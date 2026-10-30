@@ -300,6 +300,10 @@ print("Computation completed successfully on worker node.")
   const [pinnedNodeMetricsId, setPinnedNodeMetricsId] = useState(null);
   const [activeJobDetailsNodeId, setActiveJobDetailsNodeId] = useState(null);
 
+  // State for dynamic resource analytics filter (F-7)
+  const [analyticsFilterMode, setAnalyticsFilterMode] = useState('cluster'); // 'cluster' or 'process'
+  const [selectedProcessJobId, setSelectedProcessJobId] = useState('');
+
   // Modal state for adding a worker node
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
   const [newNodeName, setNewNodeName] = useState('');
@@ -446,10 +450,44 @@ print("Computation completed successfully on worker node.")
   const wouldExceedQuota = !isAdmin && (requestedJobTime > quotaRemaining);
 
   // Calculate approximate execution time based on complexity
+  // Smart AI runtime predictor & auto-scheduler heuristic (F-9 & B-4)
+  const getAiPrediction = () => {
+    const code = jobForm.sourceCode || '';
+    const lineCount = code ? code.split('\n').length : 25;
+    const isJava = jobForm.language === 'JAVA';
+    const cores = Number(jobForm.cpuCores) || 2;
+    const ramMb = Number(jobForm.memoryMb) || 1024;
+    const maxTime = Number(jobForm.maxExecutionTimeSeconds) || 60;
+
+    // Check past completed job history for similar language/resource profile
+    const similarJobs = allBackendJobs.filter(j => j.status === 'COMPLETED' && j.language === jobForm.language && j.executionDurationMs != null);
+    let baseSeconds;
+    if (similarJobs.length > 0) {
+      const avgDurationSec = similarJobs.reduce((acc, j) => acc + (j.executionDurationMs / 1000), 0) / similarJobs.length;
+      baseSeconds = Math.max(5, Math.round(avgDurationSec * (isJava ? 0.9 : 1.1)));
+    } else {
+      // Heuristic based on complexity tokens & cores
+      const complexityFactor = Math.min(3.0, Math.max(0.4, lineCount * 0.08));
+      baseSeconds = Math.round((20 * complexityFactor) / Math.max(1, cores * 0.7));
+    }
+
+    const predictedSec = Math.min(maxTime, Math.max(3, baseSeconds));
+
+    // Recommend optimal scheduling algorithm based on duration and priority
+    let recommendedAlgo = 'FCFS';
+    if (Number(jobForm.priority) === 3) {
+      recommendedAlgo = 'Priority Preemptive';
+    } else if (predictedSec < 15) {
+      recommendedAlgo = 'Shortest Job First (SJF)';
+    } else {
+      recommendedAlgo = 'Round Robin (Time-Slice)';
+    }
+
+    return { predictedSec, recommendedAlgo };
+  };
+
   const calcApproxTime = () => {
-    const base = Number(jobForm.maxExecutionTimeSeconds) || 60;
-    const cpuFactor = Math.max(0.6, 1.2 - (Number(jobForm.cpuCores) * 0.15));
-    return Math.round(base * cpuFactor);
+    return getAiPrediction().predictedSec;
   };
 
   // Login Handler (Verified against database via /api/auth/login)
@@ -856,14 +894,44 @@ print("Computation completed successfully on worker node.")
     setFeedback({ type: 'info', message: 'Signed out securely.' });
   };
 
-  // Sample analytics data for the user graph
-  const analyticsData = [
-    { time: '10:00', cpuUsage: 2, memory: 512, quotaConsumed: 30 },
-    { time: '12:00', cpuUsage: 4, memory: 1024, quotaConsumed: 70 },
-    { time: '14:00', cpuUsage: 3, memory: 1536, quotaConsumed: 120 },
-    { time: '16:00', cpuUsage: 6, memory: 2048, quotaConsumed: Math.min(quotaTotal, quotaUsed) },
-    { time: 'Now', cpuUsage: Number(jobForm.cpuCores) || 2, memory: Number(jobForm.memoryMb) || 1024, quotaConsumed: quotaUsed }
-  ];
+  // Dynamic resource analytics dataset (Cluster-Wide or Specific Process) (F-7 & B-8)
+  const getDynamicAnalyticsData = () => {
+    if (analyticsFilterMode === 'process' && selectedProcessJobId) {
+      const job = allBackendJobs.find(j => j.jobId === selectedProcessJobId);
+      if (job) {
+        const cores = job.cpuCores || 2;
+        const ram = job.memoryMb || 512;
+        const durSec = job.executionDurationMs ? Math.round(job.executionDurationMs / 1000) : job.maxExecutionTimeSeconds || 30;
+        return [
+          { time: 'T+0s (Init)', cpuUsage: Math.max(1, Math.round(cores * 0.3)), memory: Math.round(ram * 0.4), quotaConsumed: Math.round(durSec * 0.15) },
+          { time: `T+${Math.round(durSec * 0.25)}s`, cpuUsage: Math.round(cores * 0.85), memory: Math.round(ram * 0.75), quotaConsumed: Math.round(durSec * 0.4) },
+          { time: `T+${Math.round(durSec * 0.5)}s (Peak)`, cpuUsage: cores, memory: ram, quotaConsumed: Math.round(durSec * 0.65) },
+          { time: `T+${Math.round(durSec * 0.75)}s`, cpuUsage: Math.round(cores * 0.9), memory: Math.round(ram * 0.88), quotaConsumed: Math.round(durSec * 0.85) },
+          { time: `T+${durSec}s (Final)`, cpuUsage: Math.max(1, Math.round(cores * 0.2)), memory: Math.round(ram * 0.3), quotaConsumed: durSec }
+        ];
+      }
+    }
+
+    // Default Cluster-Wide telemetry aggregated from real jobs
+    if (allBackendJobs.length > 0) {
+      return allBackendJobs.slice(-6).map((j, idx) => ({
+        time: j.jobName?.slice(0, 10) || `Job #${idx + 1}`,
+        cpuUsage: j.cpuCores || 2,
+        memory: j.memoryMb || 1024,
+        quotaConsumed: j.executionDurationMs ? Math.round(j.executionDurationMs / 1000) : 30
+      }));
+    }
+
+    return [
+      { time: '10:00', cpuUsage: 2, memory: 512, quotaConsumed: 30 },
+      { time: '12:00', cpuUsage: 4, memory: 1024, quotaConsumed: 70 },
+      { time: '14:00', cpuUsage: 3, memory: 1536, quotaConsumed: 120 },
+      { time: '16:00', cpuUsage: 6, memory: 2048, quotaConsumed: Math.min(quotaTotal, quotaUsed) },
+      { time: 'Now', cpuUsage: Number(jobForm.cpuCores) || 2, memory: Number(jobForm.memoryMb) || 1024, quotaConsumed: quotaUsed }
+    ];
+  };
+
+  const dynamicAnalyticsData = getDynamicAnalyticsData();
 
   return (
     <div className="app-container">
@@ -2227,16 +2295,31 @@ print("Computation completed successfully on worker node.")
                   </div>
                 </div>
 
-                {/* Approximate Execution Time Badge */}
-                <div style={{ padding: '0.85rem 1rem', background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.2)', borderRadius: '10px', marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem', color: '#67e8f9' }}>
-                    <Clock size={16} />
-                    <span>Estimated Completion Time:</span>
-                  </div>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>
-                    ~{calcApproxTime()} seconds
-                  </span>
-                </div>
+                {/* F-9: Smart AI Runtime & Adaptive Priority Badges */}
+                {(() => {
+                  const ai = getAiPrediction();
+                  return (
+                    <div style={{ padding: '0.95rem 1.15rem', background: 'rgba(6, 182, 212, 0.06)', border: '1px solid rgba(6, 182, 212, 0.22)', borderRadius: '12px', marginTop: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.86rem', color: '#67e8f9', fontWeight: 600 }}>
+                          <Clock size={16} />
+                          <span>Estimated Duration:</span>
+                        </div>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#38bdf8', fontSize: '0.95rem', padding: '0.15rem 0.6rem', background: 'rgba(56, 189, 248, 0.12)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                          ~{ai.predictedSec}s (AI predicted)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem', borderTop: '1px dashed rgba(255,255,255,0.08)', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span>🧠 Optimal Scheduling Policy:</span>
+                        </span>
+                        <span style={{ color: 'var(--accent-emerald)', fontWeight: 600, background: 'rgba(16, 185, 129, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                          {ai.recommendedAlgo}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <button
                   type="submit"
@@ -2263,19 +2346,88 @@ print("Computation completed successfully on worker node.")
           {activeTab === 'analytics' && (
             <div>
               <div className="glass-panel" style={{ padding: '1.75rem', marginBottom: '1.5rem' }}>
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <BarChart3 size={20} color="var(--accent-cyan)" />
-                    <span>Compute Usage & Quota Consumption Velocity</span>
-                  </h2>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Real-time monitoring of CPU cores and compute time consumption against your quota.
-                  </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                  <div>
+                    <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.35rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <BarChart3 size={20} color="var(--accent-cyan)" />
+                      <span>Compute Usage & Quota Consumption Velocity</span>
+                    </h2>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      Real-time monitoring of CPU cores and compute time consumption against your quota.
+                    </p>
+                  </div>
+
+                  {/* F-7: Dynamic Scope Toggle (Cluster-Wide vs Specific Process) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnalyticsFilterMode('cluster');
+                          setSelectedProcessJobId('');
+                        }}
+                        style={{
+                          padding: '0.35rem 0.8rem',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: analyticsFilterMode === 'cluster' ? 'var(--primary-blue)' : 'transparent',
+                          color: analyticsFilterMode === 'cluster' ? '#ffffff' : 'var(--text-dim)',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        Cluster Average
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnalyticsFilterMode('process');
+                          if (allBackendJobs.length > 0 && !selectedProcessJobId) {
+                            setSelectedProcessJobId(allBackendJobs[0].jobId);
+                          }
+                        }}
+                        style={{
+                          padding: '0.35rem 0.8rem',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: analyticsFilterMode === 'process' ? 'var(--primary-blue)' : 'transparent',
+                          color: analyticsFilterMode === 'process' ? '#ffffff' : 'var(--text-dim)',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        Specific Process
+                      </button>
+                    </div>
+
+                    {analyticsFilterMode === 'process' && (
+                      <select
+                        className="form-select"
+                        style={{ padding: '0.38rem 0.8rem', fontSize: '0.78rem', width: 'auto', minWidth: '220px' }}
+                        value={selectedProcessJobId}
+                        onChange={(e) => setSelectedProcessJobId(e.target.value)}
+                      >
+                        {allBackendJobs.length === 0 ? (
+                          <option value="">No jobs submitted yet</option>
+                        ) : (
+                          allBackendJobs.map(j => (
+                            <option key={j.jobId} value={j.jobId}>
+                              {j.jobName} ({j.language}) • {j.status}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ width: '100%', height: 320 }}>
                   <ResponsiveContainer>
-                    <AreaChart data={analyticsData}>
+                    <AreaChart data={dynamicAnalyticsData}>
                       <defs>
                         <linearGradient id="colorQuota" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#2563eb" stopOpacity={0.8}/>
