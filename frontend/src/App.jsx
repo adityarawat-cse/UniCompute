@@ -275,8 +275,8 @@ print("Computation completed successfully on worker node.")
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Cluster Nodes state (persisted)
-  const [clusterNodes, setClusterNodes] = useState(() => {
+  // Compute Nodes state (persisted)
+  const [computeNodes, setComputeNodes] = useState(() => {
     const saved = localStorage.getItem('unicompute_nodes');
     if (saved) {
       try {
@@ -301,8 +301,8 @@ print("Computation completed successfully on worker node.")
 
   // Sync nodes to localStorage
   useEffect(() => {
-    localStorage.setItem('unicompute_nodes', JSON.stringify(clusterNodes));
-  }, [clusterNodes]);
+    localStorage.setItem('unicompute_nodes', JSON.stringify(computeNodes));
+  }, [computeNodes]);
 
   // Sync users
   useEffect(() => {
@@ -379,13 +379,13 @@ print("Computation completed successfully on worker node.")
       }
     } catch (e) {}
 
-    // 3. Cluster Nodes telemetry (Independent with cache busting)
+    // 3. Compute Nodes telemetry (Independent with cache busting)
     try {
       const nodesRes = await fetch(`/api/nodes?_t=${Date.now()}`, { cache: 'no-store' });
       if (nodesRes.ok) {
         const nodesData = await nodesRes.json();
         if (Array.isArray(nodesData)) {
-          setClusterNodes(nodesData);
+          setComputeNodes(nodesData);
         }
       }
     } catch (e) {
@@ -400,11 +400,11 @@ print("Computation completed successfully on worker node.")
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setClusterNodes(data);
+          setComputeNodes(data);
           const onlineCount = data.filter(n => n.status === 'Available' || n.status === 'Busy' || n.status === 'Active (Master)').length;
           setFeedback({
             type: 'success',
-            message: `Cluster nodes refreshed: ${data.length} total (${onlineCount} online/active).`
+            message: `Nodes refreshed: ${data.length} total (${onlineCount} online/active).`
           });
         }
       } else {
@@ -763,7 +763,7 @@ print("Computation completed successfully on worker node.")
       token: token
     };
 
-    setClusterNodes([...clusterNodes, newNode]);
+    setComputeNodes([...computeNodes, newNode]);
 
     // Persist to Spring Boot backend
     fetch('/api/nodes', {
@@ -794,17 +794,17 @@ print("Computation completed successfully on worker node.")
 
   // Admin: Toggle break / pause on node (so it can be used for personal lab work without receiving jobs)
   const handleToggleNodeBreak = (nodeId) => {
-    const target = clusterNodes.find(n => n.id === nodeId);
+    const target = computeNodes.find(n => n.id === nodeId);
     const willBeOnBreak = target?.status !== 'On Break';
     const nextStatus = willBeOnBreak ? 'On Break' : 'Available';
 
-    const updated = clusterNodes.map(n => {
+    const updated = computeNodes.map(n => {
       if (n.id === nodeId) {
         return { ...n, status: nextStatus };
       }
       return n;
     });
-    setClusterNodes(updated);
+    setComputeNodes(updated);
 
     fetch(`/api/nodes/${nodeId}/status`, {
       method: 'PUT',
@@ -822,12 +822,12 @@ print("Computation completed successfully on worker node.")
 
   // Admin: Remove / Evict node permanently
   const handleRemoveNode = (nodeId) => {
-    const target = clusterNodes.find(n => n.id === nodeId);
+    const target = computeNodes.find(n => n.id === nodeId);
     if (target?.id === 'node-3') {
       setFeedback({ type: 'error', message: 'Cannot remove the Master Orchestrator.' });
       return;
     }
-    setClusterNodes(clusterNodes.filter(n => n.id !== nodeId));
+    setComputeNodes(computeNodes.filter(n => n.id !== nodeId));
 
     fetch(`/api/nodes/${nodeId}`, {
       method: 'DELETE'
@@ -1264,7 +1264,7 @@ print("Computation completed successfully on worker node.")
                         <Cpu size={24} />
                       </div>
                       <div>
-                        <div className="metric-info-label">Cluster Workers</div>
+                        <div className="metric-info-label">Active Workers</div>
                         <div className="metric-info-val">4 Nodes</div>
                         <div className="metric-info-sub">&bull; Gossip Protocol Ready</div>
                       </div>
@@ -1275,7 +1275,7 @@ print("Computation completed successfully on worker node.")
                         <Layers size={24} />
                       </div>
                       <div>
-                        <div className="metric-info-label">Total Cluster Queue</div>
+                        <div className="metric-info-label">Total Queue</div>
                         <div className="metric-info-val">{allBackendJobs.length} Jobs</div>
                         <div className="metric-info-sub">All Student Workloads</div>
                       </div>
@@ -1345,7 +1345,7 @@ print("Computation completed successfully on worker node.")
                 )}
               </div>
 
-              {/* Overview Layout (2-Column for Admin with Cluster Topology, 1-Column full width for Student) */}
+              {/* Overview Layout (2-Column for Admin with Node Topology, 1-Column full width for Student) */}
               <div className={isAdmin ? 'dash-layout-grid' : 'dash-student-grid'}>
                 {/* Jobs Panel */}
                 <div className="glass-panel">
@@ -1426,7 +1426,7 @@ print("Computation completed successfully on worker node.")
                     <div className="panel-header">
                       <div className="panel-title">
                         <Server size={18} />
-                        <span>Cluster Topology ({clusterNodes.length} Nodes)</span>
+                        <span>Node Topology ({computeNodes.length} Nodes)</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                         <button
@@ -1454,7 +1454,7 @@ print("Computation completed successfully on worker node.")
                       </div>
                     </div>
                     <div className="panel-body">
-                      {clusterNodes.map((node) => {
+                      {computeNodes.map((node) => {
                         const isOnBreak = node.status === 'On Break';
                         const isOffline = node.status === 'Offline' || node.online === false;
                         const isMaster = node.id === 'node-3';
@@ -1500,7 +1500,7 @@ print("Computation completed successfully on worker node.")
                                   type="button"
                                   className="node-action-btn"
                                   onClick={() => handleToggleNodeBreak(node.id)}
-                                  title={isOnBreak ? 'Resume Node for Cluster Workloads' : 'Take Break (Free machine for local lab tasks)'}
+                                  title={isOnBreak ? 'Resume Node for Workloads' : 'Take Break (Free machine for local lab tasks)'}
                                 >
                                   {isOnBreak ? <Play size={14} color="var(--accent-emerald)" /> : <Pause size={14} color="var(--accent-amber)" />}
                                   <span>{isOnBreak ? 'Resume' : 'Break'}</span>
@@ -1873,7 +1873,7 @@ print("Computation completed successfully on worker node.")
                                   </span>
                                 </div>
                                 <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
-                                  Size: {selectedFile.size} • Ready for distribution to cluster nodes
+                                  Size: {selectedFile.size} • Ready for distribution to compute nodes
                                 </div>
                               </div>
                             </div>
@@ -1980,7 +1980,7 @@ print("Computation completed successfully on worker node.")
                 <div style={{ padding: '0.85rem 1rem', background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.2)', borderRadius: '10px', marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem', color: '#67e8f9' }}>
                     <Clock size={16} />
-                    <span>Estimated Cluster Completion Time:</span>
+                    <span>Estimated Completion Time:</span>
                   </div>
                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>
                     ~{calcApproxTime()} seconds
@@ -2144,7 +2144,7 @@ print("Computation completed successfully on worker node.")
                 <div className="modal-header">
                   <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Laptop size={20} color="var(--accent-cyan)" />
-                    <span>Onboard New Cluster Worker Node</span>
+                    <span>Onboard New Worker Node</span>
                   </h3>
                   <button
                     className="modal-close-btn"
