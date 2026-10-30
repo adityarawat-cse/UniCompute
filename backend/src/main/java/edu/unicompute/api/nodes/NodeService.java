@@ -38,36 +38,8 @@ public class NodeService {
     }
 
     private void initDefaultNodes() {
-        // Seed default cluster nodes matching demo setup
+        // Master Orchestrator host node
         Instant now = Instant.now();
-        nodes.put("node-1", new ClusterNode(
-                "node-1",
-                "Node-CSE-Lab-01",
-                16,
-                64,
-                "Linux / Ubuntu",
-                "Available",
-                "uc_tok_8492",
-                now,
-                "10.0.4.12",
-                now.minusSeconds(3600),
-                true
-        ));
-
-        nodes.put("node-2", new ClusterNode(
-                "node-2",
-                "Node-CSE-Lab-02",
-                8,
-                32,
-                "Windows 11",
-                "Available",
-                "uc_tok_3910",
-                now,
-                "10.0.4.15",
-                now.minusSeconds(3600),
-                true
-        ));
-
         nodes.put("node-3", new ClusterNode(
                 "node-3",
                 "Node-Master-Orchestrator",
@@ -218,6 +190,13 @@ public class NodeService {
         nodes.put(node.id(), node);
         persistServer(node);
         return Optional.of(node);
+    }
+
+    public void registerNode(ClusterNode node) {
+        if (node != null) {
+            nodes.put(node.id(), node);
+            persistServer(node);
+        }
     }
 
     public List<ClusterNode> findAll() {

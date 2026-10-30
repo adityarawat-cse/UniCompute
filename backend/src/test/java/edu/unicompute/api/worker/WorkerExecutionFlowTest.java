@@ -1,5 +1,6 @@
 package edu.unicompute.api.worker;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import edu.unicompute.api.jobs.Job;
@@ -38,9 +39,21 @@ class WorkerExecutionFlowTest {
 
     @BeforeEach
     void setUp() {
-        // Use pre-seeded node-2 with token uc_tok_3910
         this.nodeId = "node-2";
         this.workerToken = "uc_tok_3910";
+        nodeService.registerNode(new ClusterNode(
+                nodeId,
+                "Node-Test-Worker-02",
+                8,
+                32,
+                "Windows 11",
+                "Available",
+                workerToken,
+                Instant.now(),
+                "127.0.0.1",
+                Instant.now().minusSeconds(3600),
+                true
+        ));
         jobService.clearAllJobs();
         for (ClusterNode n : nodeService.findAll()) {
             nodeService.setNodeAvailable(n.id());

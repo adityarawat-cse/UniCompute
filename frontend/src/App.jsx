@@ -448,14 +448,17 @@ print("Computation completed successfully on worker node.")
     const saved = localStorage.getItem('unicompute_nodes');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // Filter out the removed example nodes
+          const cleaned = parsed.filter(n => n.id !== 'node-1' && n.id !== 'node-2');
+          if (cleaned.length > 0) return cleaned;
+        }
       } catch (e) {
         // fallback
       }
     }
     return [
-      { id: 'node-1', name: 'Node-CSE-Lab-01', cores: 16, memoryGb: 64, os: 'Linux / Ubuntu', status: 'Available', token: 'uc_tok_8492' },
-      { id: 'node-2', name: 'Node-CSE-Lab-02', cores: 8, memoryGb: 32, os: 'Windows 11', status: 'Available', token: 'uc_tok_3910' },
       { id: 'node-3', name: 'Node-Master-Orchestrator', cores: 8, memoryGb: 16, os: 'macOS (Host)', status: 'Active (Master)', token: 'master_token' }
     ];
   });
