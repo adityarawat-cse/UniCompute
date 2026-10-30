@@ -33,6 +33,7 @@ import {
   Terminal,
   RefreshCw,
   PlusCircle,
+  Bell,
   HardDrive,
   BarChart3,
   Users,
@@ -303,6 +304,39 @@ print("Computation completed successfully on worker node.")
   // State for dynamic resource analytics filter (F-7)
   const [analyticsFilterMode, setAnalyticsFilterMode] = useState('cluster'); // 'cluster' or 'process'
   const [selectedProcessJobId, setSelectedProcessJobId] = useState('');
+
+  // Notification Center & Alerts State (F-6)
+  const [notifications, setNotifications] = useState([
+    {
+      id: 'n-1',
+      title: 'Cluster Topology Ready',
+      message: 'UniCompute nodes active & synchronizing telemetry.',
+      type: 'info',
+      time: 'Just now',
+      read: false
+    },
+    {
+      id: 'n-2',
+      title: 'Quota Allocation Active',
+      message: 'Daily quota balance allocated for student CSE workload dispatch.',
+      type: 'success',
+      time: '5m ago',
+      read: false
+    }
+  ]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+
+  const addNotification = (title, message, type = 'info') => {
+    const newNotif = {
+      id: 'notif-' + Date.now(),
+      title,
+      message,
+      type,
+      time: 'Just now',
+      read: false
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+  };
 
   // Modal state for adding a worker node
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
@@ -958,6 +992,130 @@ print("Computation completed successfully on worker node.")
           <div className="nav-academic-tag">
             <span className="nav-live-dot" />
             <span>B.Tech CSE Capstone &bull; Decentralized Engine</span>
+          </div>
+
+          {/* F-6: Notification Bell & Dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setShowNotifDropdown(prev => !prev)}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                padding: '0.45rem',
+                color: 'var(--text-main)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                transition: 'all 0.2s'
+              }}
+              title="Notifications & System Alerts"
+            >
+              <Bell size={18} />
+              {notifications.filter(n => !n.read).length > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    width: '16px',
+                    height: '16px',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 0 6px rgba(239, 68, 68, 0.6)'
+                  }}
+                >
+                  {notifications.filter(n => !n.read).length}
+                </span>
+              )}
+            </button>
+
+            {/* Notification Dropdown Panel */}
+            {showNotifDropdown && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '120%',
+                  right: 0,
+                  width: '320px',
+                  background: 'rgba(15, 23, 42, 0.96)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '12px',
+                  boxShadow: '0 12px 35px rgba(0, 0, 0, 0.6)',
+                  zIndex: 1000,
+                  overflow: 'hidden',
+                  animation: 'fadeIn 0.2s ease-out'
+                }}
+              >
+                <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#f1f5f9' }}>Notifications & Alerts</span>
+                  <button
+                    type="button"
+                    onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Mark all read
+                  </button>
+                </div>
+
+                <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: '1.5rem', textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                      No notifications at this time
+                    </div>
+                  ) : (
+                    notifications.map(n => (
+                      <div
+                        key={n.id}
+                        style={{
+                          padding: '0.75rem 1rem',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                          background: n.read ? 'transparent' : 'rgba(37, 99, 235, 0.08)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.2rem',
+                          transition: 'background 0.2s'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{
+                            fontWeight: 600,
+                            fontSize: '0.8rem',
+                            color: n.type === 'error' ? '#ef4444' : n.type === 'warning' ? '#f59e0b' : n.type === 'success' ? '#10b981' : 'var(--accent-cyan)'
+                          }}>
+                            {n.title}
+                          </span>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>{n.time}</span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                          {n.message}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div style={{ padding: '0.5rem 1rem', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => setNotifications([])}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: '0.7rem', cursor: 'pointer' }}
+                  >
+                    Clear All Notifications
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {!currentUser && (
