@@ -49,6 +49,12 @@ public class JobController {
         return request;
     }
 
+    @PostMapping("/api/jobs/predict")
+    public ResponseEntity<AiPredictionResult> predictRuntimeAndPolicy(
+            @RequestBody JobSubmissionRequest request) {
+        return ResponseEntity.ok(jobService.predictRuntimeAndPolicy(request));
+    }
+
     @PostMapping("/api/jobs")
     public ResponseEntity<Job> submitJob(
             @Valid @RequestBody JobSubmissionRequest request) {

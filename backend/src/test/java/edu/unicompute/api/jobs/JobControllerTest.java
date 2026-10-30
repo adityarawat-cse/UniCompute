@@ -57,6 +57,33 @@ class JobControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/jobs/predict returns 200 with AI heuristic prediction")
+    void testPredictEndpoint() throws Exception {
+        AiPredictionResult pred = new AiPredictionResult(
+                8, "SJF", "Shortest Job First: Fast task", 20, 80, 1.5);
+        when(jobService.predictRuntimeAndPolicy(any())).thenReturn(pred);
+
+        String json = """
+                {
+                    "jobName": "Quick Task",
+                    "language": "PYTHON",
+                    "cpuCores": 2,
+                    "memoryMb": 512,
+                    "storageMb": 128,
+                    "maxExecutionTimeSeconds": 30,
+                    "priority": 2
+                }
+                """;
+
+        mockMvc.perform(post("/api/jobs/predict")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.predictedDurationSeconds").value(8))
+                .andExpect(jsonPath("$.optimalAlgorithm").value("SJF"));
+    }
+
+    @Test
     @DisplayName("POST /api/jobs returns 201 with created job when valid")
     void testSubmitJob_Success() throws Exception {
         UUID jobId = UUID.randomUUID();

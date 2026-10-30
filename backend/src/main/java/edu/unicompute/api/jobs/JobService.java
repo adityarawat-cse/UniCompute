@@ -118,6 +118,93 @@ public class JobService {
         }
     }
 
+    // B-4: Smart Heuristic AI Runtime Predictor & Policy Selector
+    public AiPredictionResult predictRuntimeAndPolicy(JobSubmissionRequest request) {
+        String code = request.sourceCode() != null ? request.sourceCode() : "";
+        if (code.startsWith("pkg:") && uploadService != null) {
+            String fileId = code.substring(4).trim();
+            code = uploadService.getAssembledFileDataUrl(fileId).orElse(code);
+        }
+
+        String[] lines = code.split("\r?\n");
+        int lineCount = Math.max(1, lines.length);
+
+        String[] tokens = code.split("\\s+");
+        int tokenCount = Math.max(1, tokens.length);
+
+        int loopCount = countOccurrences(code, "for ") + countOccurrences(code, "while ") + countOccurrences(code, "forEach");
+        int computeImports = countOccurrences(code, "numpy") + countOccurrences(code, "torch")
+                + countOccurrences(code, "scipy") + countOccurrences(code, "matrix")
+                + countOccurrences(code, "Thread") + countOccurrences(code, "ExecutorService");
+
+        double complexityScore = (lineCount * 0.05) + (loopCount * 0.8) + (computeImports * 1.5);
+
+        boolean isJava = "JAVA".equalsIgnoreCase(request.language());
+        int cores = Math.max(1, request.cpuCores());
+        int maxAllowedSec = Math.max(5, request.maxExecutionTimeSeconds());
+
+        double baseDuration = (12.0 * Math.max(0.4, Math.min(3.5, complexityScore))) / Math.max(1.0, cores * 0.75);
+        if (isJava) {
+            baseDuration *= 0.85;
+        }
+
+        List<Job> pastJobs = jobs.values().stream()
+                .filter(j -> j.status() == JobStatus.COMPLETED && j.executionDurationMs() != null)
+                .filter(j -> request.userId() != null && request.userId().equals(j.userId()))
+                .filter(j -> request.language().equalsIgnoreCase(j.language()))
+                .toList();
+
+        double finalPredictedSec;
+        String historyNote;
+        if (!pastJobs.isEmpty()) {
+            double avgHistoricalSec = pastJobs.stream()
+                    .mapToLong(Job::executionDurationMs)
+                    .average()
+                    .orElse(10000L) / 1000.0;
+            finalPredictedSec = (avgHistoricalSec * 0.6) + (baseDuration * 0.4);
+            historyNote = String.format("calibrated with %d past user runs (avg: %.1fs)", pastJobs.size(), avgHistoricalSec);
+        } else {
+            finalPredictedSec = baseDuration;
+            historyNote = "derived from heuristic token complexity and core scaling";
+        }
+
+        int predictedSec = (int) Math.min(maxAllowedSec, Math.max(2, Math.round(finalPredictedSec)));
+
+        String optimalAlgo;
+        String reasoning;
+
+        if (request.priority() == 3) {
+            optimalAlgo = "PRIORITY";
+            reasoning = "High Priority (Preemptive Urgent): Fast-track execution ahead of batch workloads.";
+        } else if (predictedSec <= 15) {
+            optimalAlgo = "SJF";
+            reasoning = String.format("Shortest Job First: Fast task (~%ds) prioritized to minimize queue latency (%s).", predictedSec, historyNote);
+        } else {
+            optimalAlgo = "ROUND_ROBIN";
+            reasoning = String.format("Standard Workload (~%ds): Fair cluster distribution with quantum leasing (%s).", predictedSec, historyNote);
+        }
+
+        return new AiPredictionResult(
+                predictedSec,
+                optimalAlgo,
+                reasoning,
+                lineCount,
+                tokenCount,
+                Math.round(complexityScore * 100.0) / 100.0
+        );
+    }
+
+    private int countOccurrences(String text, String target) {
+        if (text == null || target == null || text.isEmpty() || target.isEmpty()) return 0;
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(target, idx)) != -1) {
+            count++;
+            idx += target.length();
+        }
+        return count;
+    }
+
     public Job submit(JobSubmissionRequest request) {
         UUID jobId = UUID.randomUUID();
 
@@ -142,6 +229,14 @@ public class JobService {
             resolvedSourceCode = uploadService.getAssembledFileDataUrl(fileId).orElse(resolvedSourceCode);
         }
 
+        String resolvedAlgo = request.schedulingAlgorithm();
+        AiPredictionResult prediction = predictRuntimeAndPolicy(request);
+        if (resolvedAlgo == null || resolvedAlgo.isBlank() || "AUTO".equalsIgnoreCase(resolvedAlgo)) {
+            resolvedAlgo = prediction.optimalAlgorithm();
+            log.info("B-4 AI Scheduler: Job '{}' assigned optimal policy {} (predicted ~{}s, {})",
+                    request.jobName(), resolvedAlgo, prediction.predictedDurationSeconds(), prediction.reasoning());
+        }
+
         Job job = new Job(
                 jobId,
                 request.jobName(),
@@ -152,7 +247,7 @@ public class JobService {
                 request.storageMb(),
                 request.maxExecutionTimeSeconds(),
                 request.priority(),
-                request.schedulingAlgorithm(),
+                resolvedAlgo,
                 JobStatus.QUEUED,
                 Instant.now(),
                 null,
@@ -207,6 +302,26 @@ public class JobService {
                 return Optional.empty();
             }
 
+            // B-4 AI Policy-aware comparator: Priority (3 > 2 > 1), then SJF for fast tasks, then FCFS
+            Comparator<Job> schedulingComparator = (j1, j2) -> {
+                int pCompare = Integer.compare(j2.priority(), j1.priority());
+                if (pCompare != 0) return pCompare;
+
+                boolean j1IsSjf = "SJF".equalsIgnoreCase(j1.schedulingAlgorithm());
+                boolean j2IsSjf = "SJF".equalsIgnoreCase(j2.schedulingAlgorithm());
+
+                if (j1IsSjf && j2IsSjf) {
+                    int durationCompare = Integer.compare(j1.maxExecutionTimeSeconds(), j2.maxExecutionTimeSeconds());
+                    if (durationCompare != 0) return durationCompare;
+                } else if (j1IsSjf && !j2IsSjf) {
+                    return -1;
+                } else if (!j1IsSjf && j2IsSjf) {
+                    return 1;
+                }
+
+                return j1.submittedAt().compareTo(j2.submittedAt());
+            };
+
             // Find first matching QUEUED job based on priority and submission time
             Optional<Job> candidate = jobs.values().stream()
                     .filter(j -> j.status() == JobStatus.QUEUED)
@@ -214,7 +329,7 @@ public class JobService {
                     .filter(j -> !("JAVA".equalsIgnoreCase(j.language()) && !workerNode.javaAvailable()))
                     .filter(j -> j.cpuCores() <= availableCores && j.cpuCores() <= workerNode.cores())
                     .filter(j -> j.memoryMb() <= availableMemoryMb && (j.memoryMb() <= workerNode.memoryGb() * 1024L))
-                    .min(Comparator.comparingInt(Job::priority).reversed().thenComparing(Job::submittedAt));
+                    .min(schedulingComparator);
 
             if (candidate.isEmpty()) {
                 return Optional.empty();

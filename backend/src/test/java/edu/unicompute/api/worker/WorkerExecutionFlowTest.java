@@ -507,4 +507,69 @@ class WorkerExecutionFlowTest {
         assertEquals("RESUME_JOB", hbResumeResp.getBody().command());
         assertEquals(lowJob.jobId(), hbResumeResp.getBody().targetJobId());
     }
+
+    @Test
+    @DisplayName("B-4: AI heuristic predicts runtime, assigns SJF for short tasks, and prioritizes SJF in scheduler")
+    void testAiSchedulingAndRuntimePredictor() {
+        jobService.clearAllJobs();
+
+        // 1. Short task (few lines, simple script) -> predicts <= 15s and assigns SJF
+        JobSubmissionRequest shortReq = new JobSubmissionRequest(
+                "QuickScript",
+                "PYTHON",
+                "print('Hello world!')\nx = 1 + 2",
+                1,
+                512,
+                100,
+                30,
+                2,
+                "AUTO"
+        );
+        edu.unicompute.api.jobs.AiPredictionResult shortPred = jobService.predictRuntimeAndPolicy(shortReq);
+        assertTrue(shortPred.predictedDurationSeconds() <= 15);
+        assertEquals("SJF", shortPred.optimalAlgorithm());
+
+        // 2. High priority task -> assigns PRIORITY
+        JobSubmissionRequest urgentReq = new JobSubmissionRequest(
+                "UrgentTask",
+                "PYTHON",
+                "import numpy\nprint('Crunching')",
+                1,
+                512,
+                100,
+                60,
+                3,
+                "AUTO"
+        );
+        edu.unicompute.api.jobs.AiPredictionResult urgentPred = jobService.predictRuntimeAndPolicy(urgentReq);
+        assertEquals("PRIORITY", urgentPred.optimalAlgorithm());
+
+        // 3. Submit a long normal task first (300s) with FCFS
+        Job longJob = jobService.submit(new JobSubmissionRequest(
+                "LongBatch",
+                "PYTHON",
+                "import numpy\nfor i in range(100):\n    for j in range(100): pass",
+                1,
+                512,
+                100,
+                300,
+                2,
+                "FCFS"
+        ));
+
+        // Submit a short task with AUTO -> resolves to SJF
+        Job shortJob = jobService.submit(shortReq);
+        assertEquals("SJF", shortJob.schedulingAlgorithm());
+
+        // Ensure worker node is available
+        nodeService.setNodeAvailable("node-2");
+
+        // Worker polls: at equal priority (2), SJF short job should be scheduled BEFORE long FCFS job!
+        WorkerPollRequest pollReq = new WorkerPollRequest(4, 4096);
+        ResponseEntity<?> pollResponse = workerApiController.pollForJob(workerToken, pollReq);
+        assertEquals(HttpStatus.OK, pollResponse.getStatusCode());
+        WorkerJobManifest manifest = (WorkerJobManifest) pollResponse.getBody();
+        assertNotNull(manifest);
+        assertEquals(shortJob.jobId(), manifest.jobId());
+    }
 }
