@@ -1754,9 +1754,7 @@ print("Computation completed successfully on worker node.")
                         const isOnBreak = node.status === 'On Break';
                         const isOffline = node.status === 'Offline' || node.online === false;
                         const isMaster = node.id === 'node-3';
-                        const isHovered = hoveredNodeId === node.id;
-                        const isPinned = pinnedNodeMetricsId === node.id;
-                        const showMetrics = isHovered || isPinned;
+                        const showMetrics = pinnedNodeMetricsId === node.id;
 
                         // Calculate resource telemetry for F-4 3-color pie chart
                         const totalMem = node.memoryGb || 16;
@@ -1779,16 +1777,12 @@ print("Computation completed successfully on worker node.")
                           <div
                             key={node.id}
                             style={{ marginBottom: '1rem', transition: 'all 0.25s ease' }}
-                            onMouseEnter={() => setHoveredNodeId(node.id)}
-                            onMouseLeave={() => setHoveredNodeId(null)}
                           >
                             <div
                               className="node-card"
-                              onClick={() => setPinnedNodeMetricsId(prev => prev === node.id ? null : node.id)}
                               style={{
                                 opacity: isOnBreak ? 0.75 : 1,
-                                cursor: 'pointer',
-                                transform: showMetrics ? 'translateY(-3px)' : 'none',
+                                transform: showMetrics ? 'translateY(-2px)' : 'none',
                                 borderColor: showMetrics ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.05)',
                                 boxShadow: showMetrics ? '0 6px 20px rgba(6, 182, 212, 0.18)' : 'none',
                                 transition: 'all 0.25s ease'
@@ -1810,9 +1804,6 @@ print("Computation completed successfully on worker node.")
                                   {isOffline && !isOnBreak && !isMaster && (
                                     <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: '0.3rem' }}>(Waiting for worker script...)</span>
                                   )}
-                                  <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', borderRadius: '4px', background: 'rgba(6, 182, 212, 0.12)', color: 'var(--accent-cyan)', border: '1px solid rgba(6, 182, 212, 0.25)', marginLeft: '0.4rem' }}>
-                                    {showMetrics ? '📊 Tap to collapse' : '📊 Tap for Pie Chart'}
-                                  </span>
                                 </div>
                                 <div className="node-specs" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
                                   <span>{node.cores} Cores &bull; {node.memoryGb} GB RAM &bull; {node.os} {node.ipAddress ? `• IP: ${node.ipAddress}` : ''}</span>
@@ -1825,7 +1816,32 @@ print("Computation completed successfully on worker node.")
                                 </div>
                               </div>
 
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }} onClick={(e) => e.stopPropagation()}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                {/* Dedicated View Pie Chart Button (No hover glitching) */}
+                                <button
+                                  type="button"
+                                  className="quota-adjust-btn"
+                                  onClick={() => setPinnedNodeMetricsId(prev => prev === node.id ? null : node.id)}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    padding: '0.32rem 0.65rem',
+                                    height: 'auto',
+                                    fontSize: '0.76rem',
+                                    fontWeight: 600,
+                                    background: showMetrics ? 'rgba(6, 182, 212, 0.22)' : 'rgba(255, 255, 255, 0.05)',
+                                    color: showMetrics ? 'var(--accent-cyan)' : 'var(--text-main)',
+                                    border: showMetrics ? '1px solid rgba(6, 182, 212, 0.45)' : '1px solid rgba(255, 255, 255, 0.1)',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                  }}
+                                  title="Inspect storage capacity and occupied process pie chart"
+                                >
+                                  <span>{showMetrics ? '📊 Hide Pie Chart' : '📊 View Pie Chart'}</span>
+                                </button>
+
                                 <span className={isOnBreak ? 'status-badge-queued' : (isOffline && !isMaster ? 'status-badge-offline' : 'status-badge-online')}>
                                   {node.status}
                                 </span>
