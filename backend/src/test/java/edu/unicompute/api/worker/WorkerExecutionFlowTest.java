@@ -30,6 +30,9 @@ class WorkerExecutionFlowTest {
     @Autowired
     private WorkerApiController workerApiController;
 
+    @Autowired(required = false)
+    private edu.unicompute.api.users.UserService userService;
+
     private String workerToken;
     private String nodeId;
 
@@ -271,5 +274,94 @@ class WorkerExecutionFlowTest {
         WorkerPollRequest pollReq = new WorkerPollRequest(4, 4096);
         ResponseEntity<?> resp = workerApiController.pollForJob("invalid_token_999", pollReq);
         assertEquals(HttpStatus.UNAUTHORIZED, resp.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("B-3 Quota: Upfront reservation, early finish refund, cancellation refund, and insufficient quota check")
+    void testQuotaAccountingAndRefunds() {
+        if (userService == null) return;
+
+        var studentOpt = userService.findAllUsers().stream()
+                .filter(u -> "student".equalsIgnoreCase(u.username()))
+                .findFirst();
+        if (studentOpt.isEmpty()) return;
+
+        Long studentId = studentOpt.get().userId();
+        // Reset student used quota to 0
+        userService.refundUsage(studentId, 100000);
+
+        int initialUsed = userService.findById(studentId).orElseThrow().usedQuotaSeconds();
+        assertEquals(0, initialUsed);
+
+        // 1. Submit job requesting 30s
+        JobSubmissionRequest req1 = new JobSubmissionRequest(
+                "ShortFastJob",
+                "PYTHON",
+                "print('done fast')",
+                1,
+                512,
+                100,
+                30,
+                2,
+                "FCFS",
+                studentId
+        );
+        Job job1 = jobService.submit(req1);
+        assertEquals(30, userService.findById(studentId).orElseThrow().usedQuotaSeconds());
+
+        // 2. Poll and report finished in 10s (10,000 ms)
+        WorkerPollRequest pollReq = new WorkerPollRequest(4, 4096);
+        ResponseEntity<?> pollResp = workerApiController.pollForJob(workerToken, pollReq);
+        assertEquals(HttpStatus.OK, pollResp.getStatusCode());
+
+        workerApiController.acknowledgeStart(workerToken, new WorkerStartAckRequest(job1.jobId()));
+        workerApiController.reportResult(workerToken, new WorkerResultRequest(
+                job1.jobId(),
+                "COMPLETED",
+                0,
+                10000L,
+                "done fast\n",
+                ""
+        ));
+
+        // 3. Early finish refund: 30s - 10s = 20s refunded, so used quota is now 10s
+        assertEquals(10, userService.findById(studentId).orElseThrow().usedQuotaSeconds());
+
+        // 4. Submit a second job for 50s
+        JobSubmissionRequest req2 = new JobSubmissionRequest(
+                "WillCancelJob",
+                "PYTHON",
+                "print('cancel')",
+                1,
+                512,
+                100,
+                50,
+                2,
+                "FCFS",
+                studentId
+        );
+        Job job2 = jobService.submit(req2);
+        // Used quota is now 10 + 50 = 60s
+        assertEquals(60, userService.findById(studentId).orElseThrow().usedQuotaSeconds());
+
+        // 5. Cancel the job before execution -> 50s refunded back
+        boolean cancelled = jobService.cancelJob(job2.jobId());
+        assertTrue(cancelled);
+        assertEquals(10, userService.findById(studentId).orElseThrow().usedQuotaSeconds());
+
+        // 6. Insufficient quota check
+        JobSubmissionRequest reqHuge = new JobSubmissionRequest(
+                "ExceedsAllQuota",
+                "PYTHON",
+                "print('huge')",
+                1,
+                512,
+                100,
+                50000,
+                2,
+                "FCFS",
+                studentId
+        );
+        assertThrows(IllegalArgumentException.class, () -> jobService.submit(reqHuge));
     }
 }

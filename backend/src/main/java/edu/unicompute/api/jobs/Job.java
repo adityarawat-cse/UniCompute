@@ -27,8 +27,64 @@ public record Job(
         String stderr,
         Integer exitCode,
         String errorMessage,
-        int retryCount
+        int retryCount,
+        Long userId
 ) {
+    public Job(
+            UUID jobId,
+            String jobName,
+            String language,
+            String sourceCode,
+            int cpuCores,
+            int memoryMb,
+            int storageMb,
+            int maxExecutionTimeSeconds,
+            int priority,
+            String schedulingAlgorithm,
+            JobStatus status,
+            Instant submittedAt,
+            String assignedNodeId,
+            String assignedNodeName,
+            Instant assignedAt,
+            Instant startedAt,
+            Instant completedAt,
+            Instant leaseExpiresAt,
+            Long executionDurationMs,
+            String stdout,
+            String stderr,
+            Integer exitCode,
+            String errorMessage,
+            int retryCount
+    ) {
+        this(
+                jobId,
+                jobName,
+                language,
+                sourceCode,
+                cpuCores,
+                memoryMb,
+                storageMb,
+                maxExecutionTimeSeconds,
+                priority,
+                schedulingAlgorithm,
+                status,
+                submittedAt,
+                assignedNodeId,
+                assignedNodeName,
+                assignedAt,
+                startedAt,
+                completedAt,
+                leaseExpiresAt,
+                executionDurationMs,
+                stdout,
+                stderr,
+                exitCode,
+                errorMessage,
+                retryCount,
+                null
+        );
+    }
+
     public Job(
             UUID jobId,
             String jobName,
@@ -66,9 +122,11 @@ public record Job(
                 null,
                 null,
                 null,
-                0
+                0,
+                null
         );
     }
+
     public String priorityLabel() {
         return JobPriority.fromLevel(priority).getLabel();
     }
@@ -79,7 +137,7 @@ public record Job(
                 maxExecutionTimeSeconds, priority, schedulingAlgorithm,
                 JobStatus.ASSIGNED, submittedAt, nodeId, nodeName, Instant.now(),
                 startedAt, completedAt, leaseExpiresAt, executionDurationMs,
-                stdout, stderr, exitCode, errorMessage, retryCount
+                stdout, stderr, exitCode, errorMessage, retryCount, userId
         );
     }
 
@@ -89,7 +147,7 @@ public record Job(
                 maxExecutionTimeSeconds, priority, schedulingAlgorithm,
                 JobStatus.RUNNING, submittedAt, assignedNodeId, assignedNodeName, assignedAt,
                 startedAt != null ? startedAt : Instant.now(), completedAt, leaseExpiresAt,
-                executionDurationMs, stdout, stderr, exitCode, errorMessage, retryCount
+                executionDurationMs, stdout, stderr, exitCode, errorMessage, retryCount, userId
         );
     }
 
@@ -99,7 +157,7 @@ public record Job(
                 maxExecutionTimeSeconds, priority, schedulingAlgorithm,
                 JobStatus.COMPLETED, submittedAt, assignedNodeId, assignedNodeName, assignedAt,
                 startedAt, Instant.now(), null, durationMs,
-                stdout, stderr, exitCode, null, retryCount
+                stdout, stderr, exitCode, null, retryCount, userId
         );
     }
 
@@ -109,7 +167,7 @@ public record Job(
                 maxExecutionTimeSeconds, priority, schedulingAlgorithm,
                 JobStatus.FAILED, submittedAt, assignedNodeId, assignedNodeName, assignedAt,
                 startedAt, Instant.now(), null, durationMs,
-                stdout, stderr, exitCode, errorMsg, retryCount
+                stdout, stderr, exitCode, errorMsg, retryCount, userId
         );
     }
 
@@ -119,7 +177,7 @@ public record Job(
                 maxExecutionTimeSeconds, priority, schedulingAlgorithm,
                 JobStatus.CANCELLED, submittedAt, assignedNodeId, assignedNodeName, assignedAt,
                 startedAt, Instant.now(), null, executionDurationMs,
-                stdout, stderr, exitCode, "Job was cancelled by user.", retryCount
+                stdout, stderr, exitCode, "Job was cancelled by user.", retryCount, userId
         );
     }
 
@@ -129,7 +187,7 @@ public record Job(
                 maxExecutionTimeSeconds, priority, schedulingAlgorithm,
                 JobStatus.QUEUED, submittedAt, null, null, null,
                 null, null, null, null,
-                null, null, null, null, retryCount + 1
+                null, null, null, null, retryCount + 1, userId
         );
     }
 }

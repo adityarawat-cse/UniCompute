@@ -712,7 +712,8 @@ print("Computation completed successfully on worker node.")
         storageMb: Number(jobForm.storageMb),
         maxExecutionTimeSeconds: Number(jobForm.maxExecutionTimeSeconds),
         priority: Number(jobForm.priority),
-        schedulingAlgorithm: jobForm.schedulingAlgorithm
+        schedulingAlgorithm: jobForm.schedulingAlgorithm,
+        userId: currentUser?.userId
       };
 
       const res = await fetch('/api/jobs', {
@@ -738,6 +739,7 @@ print("Computation completed successfully on worker node.")
           type: 'success',
           message: `Job "${created.jobName}" submitted successfully! Assigned UUID: ${created.jobId}`
         });
+        addNotification('Job Dispatched', `"${created.jobName}" submitted (${payload.maxExecutionTimeSeconds}s quota reserved).`, 'info');
 
         // Reset form
         setJobForm({

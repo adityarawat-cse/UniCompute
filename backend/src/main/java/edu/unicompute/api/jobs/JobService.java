@@ -20,6 +20,7 @@ import edu.unicompute.api.persistence.entity.JobEntity;
 import edu.unicompute.api.persistence.entity.JobExecutionEntity;
 import edu.unicompute.api.persistence.repository.JobExecutionRepository;
 import edu.unicompute.api.persistence.repository.JobRepository;
+import edu.unicompute.api.users.UserResponse;
 import edu.unicompute.api.users.UserService;
 import edu.unicompute.api.worker.WorkerJobManifest;
 import edu.unicompute.api.worker.WorkerResultRequest;
@@ -103,6 +104,21 @@ public class JobService {
     public Job submit(JobSubmissionRequest request) {
         UUID jobId = UUID.randomUUID();
 
+        // B-3: Upfront quota check and reservation
+        if (userService != null && request.userId() != null) {
+            Optional<UserResponse> userOpt = userService.findById(request.userId());
+            if (userOpt.isPresent()) {
+                UserResponse u = userOpt.get();
+                int remaining = Math.max(0, u.dailyQuotaSeconds() - u.usedQuotaSeconds());
+                if (remaining < request.maxExecutionTimeSeconds()) {
+                    throw new IllegalArgumentException("Insufficient daily compute quota! Requested "
+                            + request.maxExecutionTimeSeconds() + "s but only " + remaining + "s remain in daily balance.");
+                }
+                userService.recordUsage(request.userId(), request.maxExecutionTimeSeconds());
+                log.info("B-3 Quota: Reserved {}s quota for user {} (job {})", request.maxExecutionTimeSeconds(), request.userId(), jobId);
+            }
+        }
+
         Job job = new Job(
                 jobId,
                 request.jobName(),
@@ -127,7 +143,8 @@ public class JobService {
                 null,
                 null,
                 null,
-                0
+                0,
+                request.userId()
         );
 
         jobs.put(jobId, job);
@@ -265,8 +282,25 @@ public class JobService {
                 }
             }
 
-            // Track user quota if UserService is active
-            if (userService != null && duration > 0) {
+            // B-3: Actual Usage Quota Accounting & Refunds
+            if (userService != null && job.userId() != null) {
+                int requestedSeconds = job.maxExecutionTimeSeconds();
+                int actualSeconds = (int) Math.ceil(duration / 1000.0);
+
+                if (actualSeconds < requestedSeconds) {
+                    // Early finish: refund unused quota back to user
+                    int refundSeconds = requestedSeconds - actualSeconds;
+                    userService.refundUsage(job.userId(), refundSeconds);
+                    log.info("B-3 Quota Refund: Job {} finished in {}s (requested {}s). Refunded {}s to user {}",
+                            job.jobId(), actualSeconds, requestedSeconds, refundSeconds, job.userId());
+                } else if (actualSeconds > requestedSeconds) {
+                    // Overrun protection: deduct extra overrun seconds from remaining quota
+                    int overrunSeconds = actualSeconds - requestedSeconds;
+                    userService.recordUsage(job.userId(), overrunSeconds);
+                    log.info("B-3 Overrun Protection: Job {} took {}s (requested {}s). Deducted extra {}s from user {}",
+                            job.jobId(), actualSeconds, requestedSeconds, overrunSeconds, job.userId());
+                }
+            } else if (userService != null && duration > 0) {
                 int durationSeconds = (int) Math.ceil(duration / 1000.0);
                 if (jobRepository != null) {
                     jobRepository.findById(job.jobId().toString()).ifPresent(entity -> {
@@ -295,6 +329,13 @@ public class JobService {
             Job cancelled = job.withCancelled();
             jobs.put(jobId, cancelled);
             persistJob(cancelled);
+
+            // B-3: Refund reserved quota on cancellation if not already executed
+            if (userService != null && job.userId() != null && (job.status() == JobStatus.QUEUED || job.status() == JobStatus.ASSIGNED)) {
+                userService.refundUsage(job.userId(), job.maxExecutionTimeSeconds());
+                log.info("B-3 Cancellation Refund: Refunded {}s quota to user {} for cancelled job {}",
+                        job.maxExecutionTimeSeconds(), job.userId(), jobId);
+            }
 
             if (executionRepository != null) {
                 try {

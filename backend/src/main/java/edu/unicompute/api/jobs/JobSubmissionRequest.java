@@ -36,8 +36,35 @@ public record JobSubmissionRequest(
         int priority,
 
         @Pattern(regexp = "FCFS|SJF|PRIORITY|ROUND_ROBIN|AUTO")
-        String schedulingAlgorithm
+        String schedulingAlgorithm,
+
+        Long userId
 ) {
+    public JobSubmissionRequest(
+            String jobName,
+            String language,
+            String sourceCode,
+            int cpuCores,
+            int memoryMb,
+            int storageMb,
+            int maxExecutionTimeSeconds,
+            int priority,
+            String schedulingAlgorithm
+    ) {
+        this(
+                jobName,
+                language,
+                sourceCode,
+                cpuCores,
+                memoryMb,
+                storageMb,
+                maxExecutionTimeSeconds,
+                priority,
+                schedulingAlgorithm,
+                null
+        );
+    }
+
     public JobSubmissionRequest {
         if (sourceCode == null) {
             sourceCode = "";

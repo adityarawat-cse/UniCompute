@@ -109,6 +109,7 @@ public class JobEntity {
         entity.startedAt = job.startedAt();
         entity.completedAt = job.completedAt();
         entity.leaseExpiresAt = job.leaseExpiresAt();
+        entity.userId = job.userId();
         return entity;
     }
 
@@ -137,7 +138,8 @@ public class JobEntity {
                 stderr,
                 exitCode,
                 errorMessage,
-                retryCount
+                retryCount,
+                userId
         );
     }
 
