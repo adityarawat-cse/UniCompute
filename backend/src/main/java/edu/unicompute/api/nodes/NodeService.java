@@ -9,15 +9,35 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import edu.unicompute.api.persistence.entity.ServerEntity;
+import edu.unicompute.api.persistence.repository.ServerRepository;
 
 @Service
 public class NodeService {
 
+    private static final Logger log = LoggerFactory.getLogger(NodeService.class);
+
     private final Map<String, ClusterNode> nodes = new ConcurrentHashMap<>();
     private final java.util.Set<String> evictedTokens = ConcurrentHashMap.newKeySet();
+    private final ServerRepository serverRepository;
+
+    @Autowired
+    public NodeService(@Autowired(required = false) ServerRepository serverRepository) {
+        this.serverRepository = serverRepository;
+        initDefaultNodes();
+        initFromDatabase();
+    }
 
     public NodeService() {
+        this(null);
+    }
+
+    private void initDefaultNodes() {
         // Seed default cluster nodes matching demo setup
         Instant now = Instant.now();
         nodes.put("node-1", new ClusterNode(
@@ -52,7 +72,7 @@ public class NodeService {
                 "node-3",
                 "Node-Master-Orchestrator",
                 8,
-                16,
+                55,
                 "macOS (Host)",
                 "Active (Master)",
                 "master_token",
@@ -61,6 +81,35 @@ public class NodeService {
                 now.minusSeconds(86400),
                 true
         ));
+    }
+
+    private void initFromDatabase() {
+        if (serverRepository != null) {
+            try {
+                List<ServerEntity> persisted = serverRepository.findAll();
+                for (ServerEntity entity : persisted) {
+                    try {
+                        ClusterNode node = entity.toDomain();
+                        nodes.put(node.id(), node);
+                    } catch (Exception e) {
+                        log.warn("Could not load persisted server {}: {}", entity.getServerId(), e.getMessage());
+                    }
+                }
+                log.info("Initialized {} server nodes from database.", persisted.size());
+            } catch (Exception e) {
+                log.warn("Server database initialization skipped: {}", e.getMessage());
+            }
+        }
+    }
+
+    private void persistServer(ClusterNode node) {
+        if (serverRepository != null && node != null) {
+            try {
+                serverRepository.save(ServerEntity.fromDomain(node));
+            } catch (Exception e) {
+                log.error("Failed to persist server {} to database: {}", node.id(), e.getMessage());
+            }
+        }
     }
 
     public ClusterNode register(NodeRegistrationRequest request, String clientIp) {
@@ -91,6 +140,7 @@ public class NodeService {
         );
 
         nodes.put(nodeId, node);
+        persistServer(node);
         return node;
     }
 
@@ -166,6 +216,7 @@ public class NodeService {
         }
 
         nodes.put(node.id(), node);
+        persistServer(node);
         return Optional.of(node);
     }
 
@@ -194,6 +245,7 @@ public class NodeService {
         boolean isOnline = node.online();
         ClusterNode updated = node.withStatus(newStatus, isOnline);
         nodes.put(id, updated);
+        persistServer(updated);
         return Optional.of(computeLiveNodeState(updated, Instant.now()));
     }
 
@@ -219,6 +271,7 @@ public class NodeService {
                     false
             );
             nodes.put(node.id(), offlineNode);
+            persistServer(offlineNode);
             return Optional.of(offlineNode);
         }
         return Optional.empty();
@@ -240,6 +293,7 @@ public class NodeService {
         if (node != null) {
             ClusterNode busyNode = node.withActiveJob(jobId);
             nodes.put(id, busyNode);
+            persistServer(busyNode);
         }
     }
 
@@ -248,6 +302,7 @@ public class NodeService {
         if (node != null) {
             ClusterNode availNode = node.withJobCleared();
             nodes.put(id, availNode);
+            persistServer(availNode);
         }
     }
 
@@ -277,6 +332,7 @@ public class NodeService {
                             javaVersion
                     );
                     nodes.put(existing.id(), updated);
+                    persistServer(updated);
                 });
     }
 
@@ -288,6 +344,13 @@ public class NodeService {
         if (removed != null) {
             if (removed.token() != null && !removed.token().isBlank()) {
                 evictedTokens.add(removed.token().toLowerCase().trim());
+            }
+            if (serverRepository != null) {
+                try {
+                    serverRepository.deleteById(id);
+                } catch (Exception e) {
+                    log.error("Failed to delete server {} from database: {}", id, e.getMessage());
+                }
             }
             return true;
         }

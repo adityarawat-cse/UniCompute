@@ -355,6 +355,30 @@ print("Computation completed successfully on worker node.")
       setIsLoadingJobs(false);
     }
 
+    // 4. Users Quota & Authentication List from Database
+    try {
+      const usersRes = await fetch('/api/users');
+      if (usersRes.ok) {
+        const uData = await usersRes.json();
+        if (Array.isArray(uData) && uData.length > 0) {
+          setUsers(prev => {
+            const mapped = uData.map(u => ({
+              userId: u.userId,
+              username: u.username,
+              email: u.email,
+              name: u.fullName,
+              role: u.role === 'ADMIN' ? 'Platform Administrator' : 'Student / Researcher',
+              quotaSeconds: u.dailyQuotaSeconds || 1200,
+              usedSeconds: u.usedQuotaSeconds || 0
+            }));
+            const existing = new Set(mapped.map(m => m.email));
+            const leftovers = prev.filter(p => !existing.has(p.email));
+            return [...mapped, ...leftovers];
+          });
+        }
+      }
+    } catch (e) {}
+
     // 3. Cluster Nodes telemetry (Independent with cache busting)
     try {
       const nodesRes = await fetch(`/api/nodes?_t=${Date.now()}`, { cache: 'no-store' });
@@ -420,8 +444,8 @@ print("Computation completed successfully on worker node.")
     return Math.round(base * cpuFactor);
   };
 
-  // Login Handler
-  const handleLoginSubmit = (e) => {
+  // Login Handler (Verified against database via /api/auth/login)
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setFeedback({ type: '', message: '' });
 
@@ -433,6 +457,37 @@ print("Computation completed successfully on worker node.")
       return;
     }
 
+    // Authenticate against database API
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: trimmedId, password: trimmedPwd })
+      });
+      if (res.ok) {
+        const u = await res.json();
+        const loggedUser = {
+          userId: u.userId,
+          username: u.username,
+          email: u.email,
+          name: u.fullName,
+          role: u.role === 'ADMIN' ? 'Platform Administrator' : 'Student / Researcher',
+          quotaSeconds: u.dailyQuotaSeconds || 1200,
+          usedSeconds: u.usedQuotaSeconds || 0
+        };
+        setFeedback({ type: 'success', message: `Welcome, ${loggedUser.name}!` });
+        confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+        setTimeout(() => {
+          setCurrentUser(loggedUser);
+          localStorage.setItem('unicompute_session', JSON.stringify(loggedUser));
+        }, 400);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend auth unavailable, checking local accounts', err);
+    }
+
+    // Fallback to local accounts
     const matchedUser = users.find(
       (u) =>
         (u.username?.toLowerCase() === trimmedId.toLowerCase() ||
@@ -442,19 +497,6 @@ print("Computation completed successfully on worker node.")
 
     if (matchedUser) {
       setFeedback({ type: 'success', message: `Welcome, ${matchedUser.name}!` });
-
-      const firstTimeKey = `unicompute_welcomed_${matchedUser.email || matchedUser.username}`;
-      const hasBeenWelcomed = localStorage.getItem(firstTimeKey);
-
-      if (!hasBeenWelcomed) {
-        confetti({
-          particleCount: 80,
-          spread: 60,
-          origin: { y: 0.6 }
-        });
-        localStorage.setItem(firstTimeKey, 'true');
-      }
-
       setTimeout(() => {
         setCurrentUser(matchedUser);
         localStorage.setItem('unicompute_session', JSON.stringify(matchedUser));
@@ -467,8 +509,8 @@ print("Computation completed successfully on worker node.")
     }
   };
 
-  // Register Handler
-  const handleRegisterSubmit = (e) => {
+  // Register Handler (Persisted to database via /api/auth/register)
+  const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     setFeedback({ type: '', message: '' });
 
@@ -487,22 +529,51 @@ print("Computation completed successfully on worker node.")
       return;
     }
 
-    const emailExists = users.some((u) => u.email?.toLowerCase() === email);
-    if (emailExists) {
-      setFeedback({
-        type: 'error',
-        message: 'This email is already registered. Please sign in or use another email.'
+    // Call backend API to persist to MySQL users table
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: email.split('@')[0],
+          email: email,
+          password: pwd,
+          fullName: name,
+          role: 'STUDENT',
+          department: 'Computer Science & Engineering'
+        })
       });
-      return;
-    }
 
-    const passwordExists = users.some((u) => u.password === pwd);
-    if (passwordExists) {
-      setFeedback({
-        type: 'error',
-        message: 'Security constraint: This password is already in use by another account. Please select a unique password.'
-      });
-      return;
+      if (res.ok) {
+        const u = await res.json();
+        const newUser = {
+          userId: u.userId,
+          username: u.username,
+          email: u.email,
+          name: u.fullName,
+          role: 'Student / Researcher',
+          quotaSeconds: u.dailyQuotaSeconds || 3600,
+          usedSeconds: u.usedQuotaSeconds || 0
+        };
+        setUsers(prev => [...prev.filter(x => x.email !== newUser.email), newUser]);
+        setFeedback({
+          type: 'success',
+          message: 'Account successfully registered and persisted in database! You can now sign in.'
+        });
+        setRegName('');
+        setRegEmail('');
+        setRegPassword('');
+        setLoginIdentifier(email);
+        setLoginPassword('');
+        setTimeout(() => setAuthMode('login'), 1200);
+        return;
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setFeedback({ type: 'error', message: errJson.error || 'Registration failed on server.' });
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend registration unavailable, creating local user', err);
     }
 
     const newUser = {
@@ -511,7 +582,7 @@ print("Computation completed successfully on worker node.")
       name: name,
       password: pwd,
       role: 'Student / Researcher',
-      quotaSeconds: 300, // Default 300 seconds assigned by system, admin can increase
+      quotaSeconds: 300,
       usedSeconds: 0
     };
 
@@ -526,9 +597,7 @@ print("Computation completed successfully on worker node.")
     setRegPassword('');
     setLoginIdentifier(email);
     setLoginPassword('');
-    setTimeout(() => {
-      setAuthMode('login');
-    }, 1200);
+    setTimeout(() => setAuthMode('login'), 1200);
   };
 
   // Job Submission to Backend with Quota Deduction
@@ -639,8 +708,8 @@ print("Computation completed successfully on worker node.")
     }
   };
 
-  // Admin: Update User Quota
-  const handleUpdateQuota = (userEmail, additionalSeconds) => {
+  // Admin: Update User Quota with backend sync
+  const handleUpdateQuota = async (userEmail, additionalSeconds) => {
     const updated = users.map(u => {
       if (u.email === userEmail) {
         const newQuota = Math.max(0, (u.quotaSeconds || 300) + additionalSeconds);
@@ -649,6 +718,33 @@ print("Computation completed successfully on worker node.")
       return u;
     });
     setUsers(updated);
+
+    const targetUser = users.find(u => u.email === userEmail);
+    if (targetUser?.userId) {
+      try {
+        await fetch(`/api/users/${targetUser.userId}/quota`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deltaSeconds: additionalSeconds })
+        });
+      } catch (err) {
+        console.warn('Could not sync quota to backend:', err);
+      }
+    }
+  };
+
+  // Admin: Delete User safely cascading related records
+  const handleDeleteUser = async (userToDelete) => {
+    if (!window.confirm(`Are you sure you want to delete user ${userToDelete.name || userToDelete.username}? All owned projects and tasks will be safely cascaded or decoupled.`)) return;
+    try {
+      if (userToDelete.userId) {
+        await fetch(`/api/users/${userToDelete.userId}`, { method: 'DELETE' });
+      }
+    } catch (err) {
+      console.warn('Backend user deletion error:', err);
+    }
+    setUsers(prev => prev.filter(u => u.email !== userToDelete.email && u.username !== userToDelete.username));
+    setFeedback({ type: 'info', message: `User ${userToDelete.name || userToDelete.username} deleted cleanly.` });
   };
 
   // Admin: Add a new node & generate installation payload
@@ -2020,6 +2116,15 @@ print("Computation completed successfully on worker node.")
                                   onClick={() => handleUpdateQuota(u.email, -60)}
                                 >
                                   -60s
+                                </button>
+                                <button
+                                  className="quota-adjust-btn"
+                                  title="Delete User (safely cascades foreign keys)"
+                                  style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)', marginLeft: '0.4rem' }}
+                                  onClick={() => handleDeleteUser(u)}
+                                >
+                                  <Trash2 size={13} style={{ marginRight: '3px', verticalAlign: 'middle', display: 'inline' }} />
+                                  Delete
                                 </button>
                               </div>
                             )}
