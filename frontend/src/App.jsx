@@ -502,29 +502,53 @@ print("Computation completed successfully on worker node.")
   }, [selectedProcessJobId, analyticsFilterMode]);
 
   // Notification Center & Alerts State (F-6)
-  const [notifications, setNotifications] = useState([
-    {
-      id: 'n-1',
-      title: 'Cluster Topology Ready',
-      message: 'UniCompute nodes active & synchronizing telemetry.',
-      type: 'info',
-      time: 'Just now',
-      read: false
-    },
-    {
-      id: 'n-2',
-      title: 'Quota Allocation Active',
-      message: 'Daily quota balance allocated for student CSE workload dispatch.',
-      type: 'success',
-      time: '5m ago',
-      read: false
+  const prevJobStatusMap = useRef({});
+
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('unicompute_notifications');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse notifications from localStorage', e);
     }
-  ]);
+    return [
+      {
+        id: 'n-1',
+        title: 'Cluster Topology Ready',
+        message: 'UniCompute nodes active & synchronizing telemetry.',
+        type: 'info',
+        time: 'Just now',
+        read: false
+      },
+      {
+        id: 'n-2',
+        title: 'Quota Allocation Active',
+        message: 'Daily quota balance allocated for student CSE workload dispatch.',
+        type: 'success',
+        time: '5m ago',
+        read: false
+      }
+    ];
+  });
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+
+  // Sync notifications to localStorage so read/unread and custom alerts persist across refresh
+  useEffect(() => {
+    try {
+      localStorage.setItem('unicompute_notifications', JSON.stringify(notifications));
+    } catch (e) {
+      console.warn('Failed to persist notifications', e);
+    }
+  }, [notifications]);
 
   const addNotification = (title, message, type = 'info') => {
     const newNotif = {
-      id: 'notif-' + Date.now(),
+      id: 'notif-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       title,
       message,
       type,
@@ -532,6 +556,10 @@ print("Computation completed successfully on worker node.")
       read: false
     };
     setNotifications(prev => [newNotif, ...prev]);
+  };
+
+  const markNotificationAsRead = (id) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
 
   // Modal state for adding a worker node
@@ -589,7 +617,42 @@ print("Computation completed successfully on worker node.")
       const jobsRes = await fetch('/api/jobs');
       if (jobsRes.ok) {
         const data = await jobsRes.json();
-        setAllBackendJobs(data);
+        if (Array.isArray(data)) {
+          setAllBackendJobs(data);
+
+          // Real-time notification triggers for job lifecycle transitions
+          data.forEach(job => {
+            const prevStatus = prevJobStatusMap.current[job.jobId];
+            if (prevStatus && prevStatus !== job.status) {
+              if (job.status === 'COMPLETED') {
+                addNotification(
+                  'Job Completed',
+                  `"${job.jobName}" finished successfully (${job.durationMs || 0}ms).`,
+                  'success'
+                );
+              } else if (job.status === 'FAILED') {
+                addNotification(
+                  'Job Failed',
+                  `"${job.jobName}" failed: ${job.errorMessage || 'Execution terminated with error'}.`,
+                  'error'
+                );
+              } else if (job.status === 'SUSPENDED') {
+                addNotification(
+                  'Job Preempted',
+                  `"${job.jobName}" suspended to yield node to higher priority job.`,
+                  'warning'
+                );
+              } else if (job.status === 'RUNNING' && prevStatus === 'SUSPENDED') {
+                addNotification(
+                  'Job Resumed',
+                  `"${job.jobName}" resumed execution on compute worker.`,
+                  'info'
+                );
+              }
+            }
+            prevJobStatusMap.current[job.jobId] = job.status;
+          });
+        }
       }
     } catch (e) {
       // keep local
@@ -977,6 +1040,7 @@ print("Computation completed successfully on worker node.")
       const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
       if (res.ok) {
         setFeedback({ type: 'info', message: 'Cancellation signal sent. Worker will abort execution.' });
+        addNotification('Job Cancelled', 'Workload was aborted and unallocated quota refunded.', 'warning');
         fetchBackendInfo();
       } else {
         setFeedback({ type: 'error', message: 'Could not cancel job (it may have already finished).' });
@@ -1005,6 +1069,11 @@ print("Computation completed successfully on worker node.")
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ deltaSeconds: additionalSeconds })
         });
+        addNotification(
+          'Quota Updated',
+          `Quota for "${targetUser.name || userEmail}" adjusted by ${additionalSeconds > 0 ? '+' : ''}${additionalSeconds}s.`,
+          'info'
+        );
       } catch (err) {
         console.warn('Could not sync quota to backend:', err);
       }
@@ -1313,14 +1382,18 @@ print("Computation completed successfully on worker node.")
                     notifications.map(n => (
                       <div
                         key={n.id}
+                        onClick={() => markNotificationAsRead(n.id)}
+                        title={n.read ? 'Marked as read' : 'Click to mark as read'}
                         style={{
                           padding: '0.75rem 1rem',
                           borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                          background: n.read ? 'transparent' : 'rgba(37, 99, 235, 0.08)',
+                          background: n.read ? 'transparent' : 'rgba(37, 99, 235, 0.12)',
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '0.2rem',
-                          transition: 'background 0.2s'
+                          cursor: 'pointer',
+                          transition: 'background 0.2s',
+                          position: 'relative'
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1331,9 +1404,24 @@ print("Computation completed successfully on worker node.")
                           }}>
                             {n.title}
                           </span>
-                          <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>{n.time}</span>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            {n.time}
+                            {!n.read && (
+                              <span
+                                style={{
+                                  width: '7px',
+                                  height: '7px',
+                                  borderRadius: '50%',
+                                  background: '#38bdf8',
+                                  boxShadow: '0 0 6px rgba(56, 189, 248, 0.8)',
+                                  display: 'inline-block'
+                                }}
+                                title="Unread"
+                              />
+                            )}
+                          </span>
                         </div>
-                        <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                        <p style={{ margin: 0, fontSize: '0.74rem', color: n.read ? 'var(--text-dim)' : 'var(--text-main)', lineHeight: 1.4 }}>
                           {n.message}
                         </p>
                       </div>
