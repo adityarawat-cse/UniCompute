@@ -100,12 +100,25 @@ public class WorkerApiController {
 
         nodeService.recordWorkerHeartbeat(token, activeJobId, pyAvail, pyVer, javaAvail, javaVer);
 
-        // Check if the worker is executing a job that has been cancelled
+        // Check if the worker is executing a job that has been cancelled or preempted (B-2)
         if (activeJobId != null) {
             Optional<Job> jobOpt = jobService.findById(activeJobId);
-            if (jobOpt.isPresent() && jobOpt.get().status() == JobStatus.CANCELLED) {
-                return ResponseEntity.ok(WorkerHeartbeatResponse.cancel("Cancelled", activeJobId));
+            if (jobOpt.isPresent()) {
+                Job currentJob = jobOpt.get();
+                if (currentJob.status() == JobStatus.CANCELLED) {
+                    return ResponseEntity.ok(WorkerHeartbeatResponse.cancel("Cancelled", activeJobId));
+                }
+                if (currentJob.status() == JobStatus.SUSPENDED) {
+                    nodeService.setNodeAvailable(nodeOpt.get().id());
+                    return ResponseEntity.ok(WorkerHeartbeatResponse.pause("Suspended", activeJobId));
+                }
             }
+        }
+
+        // Check if there is a pending resume command for a preempted job on this worker node
+        UUID resumeJobId = jobService.checkPendingResume(nodeOpt.get().id());
+        if (resumeJobId != null) {
+            return ResponseEntity.ok(WorkerHeartbeatResponse.resume("Resumed", resumeJobId));
         }
 
         ClusterNode fresh = nodeService.findByToken(token).orElse(nodeOpt.get());

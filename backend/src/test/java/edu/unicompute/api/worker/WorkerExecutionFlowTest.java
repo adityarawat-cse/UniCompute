@@ -41,7 +41,10 @@ class WorkerExecutionFlowTest {
         // Use pre-seeded node-2 with token uc_tok_3910
         this.nodeId = "node-2";
         this.workerToken = "uc_tok_3910";
-        nodeService.setNodeAvailable(this.nodeId);
+        jobService.clearAllJobs();
+        for (ClusterNode n : nodeService.findAll()) {
+            nodeService.setNodeAvailable(n.id());
+        }
     }
 
     @Test
@@ -408,5 +411,100 @@ class WorkerExecutionFlowTest {
         assertEquals(320.0, points.get(0).memoryMb());
         assertEquals(78.2, points.get(1).cpuUsagePercent());
         assertEquals(640.0, points.get(1).memoryMb());
+    }
+
+    @Test
+    @DisplayName("B-2 Preemption: High priority job preempts running low priority job -> worker receives PAUSE_JOB -> resumes after completion")
+    void testProcessPreemptionAndResume() {
+        // Ensure node-2 is available
+        nodeService.setNodeAvailable(nodeId);
+
+        // 1. Submit Low priority job (priority = 1)
+        JobSubmissionRequest lowReq = new JobSubmissionRequest(
+                "LowPriorityBackgroundJob",
+                "PYTHON",
+                "import time\ntime.sleep(60)",
+                1,
+                512,
+                100,
+                60,
+                1,
+                "FCFS"
+        );
+        Job lowJob = jobService.submit(lowReq);
+
+        // 2. Worker polls and claims Low priority job
+        WorkerPollRequest pollReq = new WorkerPollRequest(4, 4096);
+        ResponseEntity<?> poll1 = workerApiController.pollForJob(workerToken, pollReq);
+        assertEquals(HttpStatus.OK, poll1.getStatusCode());
+        WorkerJobManifest manifest1 = (WorkerJobManifest) poll1.getBody();
+        assertEquals(lowJob.jobId(), manifest1.jobId());
+
+        // Worker acknowledges start -> Job is RUNNING
+        workerApiController.acknowledgeStart(workerToken, new WorkerStartAckRequest(lowJob.jobId()));
+        assertEquals(JobStatus.RUNNING, jobService.findById(lowJob.jobId()).orElseThrow().status());
+
+        // Ensure other nodes are busy so node-2 is the sole compute resource for preemption
+        for (ClusterNode n : nodeService.findAll()) {
+            if (!n.id().equals(nodeId)) {
+                nodeService.setNodeBusy(n.id(), UUID.randomUUID());
+            }
+        }
+
+        // 3. High priority job arrives (priority = 3) while all nodes are busy
+        JobSubmissionRequest highReq = new JobSubmissionRequest(
+                "UrgentHighPriorityJob",
+                "PYTHON",
+                "print('urgent')",
+                1,
+                512,
+                100,
+                30,
+                3,
+                "PRIORITY"
+        );
+        Job highJob = jobService.submit(highReq);
+
+        // 4. Verify low-priority job was preempted and transitioned to SUSPENDED
+        Job victim = jobService.findById(lowJob.jobId()).orElseThrow();
+        assertEquals(JobStatus.SUSPENDED, victim.status());
+
+        // 5. Worker sends heartbeat while running lowJob -> receives PAUSE_JOB signal
+        WorkerHeartbeatRequest hbReq = new WorkerHeartbeatRequest(lowJob.jobId(), true, "Python 3.11");
+        ResponseEntity<WorkerHeartbeatResponse> hbResp = workerApiController.workerHeartbeat(workerToken, hbReq);
+        assertEquals(HttpStatus.OK, hbResp.getStatusCode());
+        assertNotNull(hbResp.getBody());
+        assertEquals("PAUSE_JOB", hbResp.getBody().command());
+
+        // 6. Worker polls again -> Node is available, gets High priority job
+        ResponseEntity<?> poll2 = workerApiController.pollForJob(workerToken, pollReq);
+        assertEquals(HttpStatus.OK, poll2.getStatusCode());
+        WorkerJobManifest manifest2 = (WorkerJobManifest) poll2.getBody();
+        assertEquals(highJob.jobId(), manifest2.jobId());
+
+        workerApiController.acknowledgeStart(workerToken, new WorkerStartAckRequest(highJob.jobId()));
+        assertEquals(JobStatus.RUNNING, jobService.findById(highJob.jobId()).orElseThrow().status());
+
+        // 7. High priority job finishes
+        workerApiController.reportResult(workerToken, new WorkerResultRequest(
+                highJob.jobId(),
+                "COMPLETED",
+                0,
+                1200L,
+                "urgent\n",
+                ""
+        ));
+        assertEquals(JobStatus.COMPLETED, jobService.findById(highJob.jobId()).orElseThrow().status());
+
+        // 8. Low priority job is automatically restored to RUNNING
+        Job resumed = jobService.findById(lowJob.jobId()).orElseThrow();
+        assertEquals(JobStatus.RUNNING, resumed.status());
+
+        // 9. On subsequent heartbeat, worker receives RESUME_JOB command
+        ResponseEntity<WorkerHeartbeatResponse> hbResumeResp = workerApiController.workerHeartbeat(workerToken, null);
+        assertEquals(HttpStatus.OK, hbResumeResp.getStatusCode());
+        assertNotNull(hbResumeResp.getBody());
+        assertEquals("RESUME_JOB", hbResumeResp.getBody().command());
+        assertEquals(lowJob.jobId(), hbResumeResp.getBody().targetJobId());
     }
 }

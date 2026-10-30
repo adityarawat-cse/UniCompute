@@ -35,6 +35,8 @@ public class JobService {
 
     private final Map<UUID, Job> jobs = new ConcurrentHashMap<>();
     private final Map<UUID, List<TelemetryDataPoint>> telemetryStore = new ConcurrentHashMap<>();
+    private final Map<String, List<UUID>> suspendedJobsByNode = new ConcurrentHashMap<>();
+    private final Map<String, UUID> pendingResumes = new ConcurrentHashMap<>();
     private final NodeService nodeService;
     private final JobRepository jobRepository;
     private final JobExecutionRepository executionRepository;
@@ -153,6 +155,12 @@ public class JobService {
 
         jobs.put(jobId, job);
         persistJob(job);
+
+        // B-2: Check if this high-priority job should preempt a running lower-priority job
+        if (job.priority() == 3) {
+            checkForPreemption();
+        }
+
         return job;
     }
 
@@ -171,9 +179,14 @@ public class JobService {
         schedulingLock.lock();
         try {
             checkLeaseTimeouts();
+            checkForPreemption();
 
-            // Check if node is online and ready
-            if (!workerNode.online() || !"Available".equalsIgnoreCase(workerNode.status()) || workerNode.activeJobId() != null) {
+            // Check if node is online and ready (or is hosting a suspended job waiting for preemption execution)
+            boolean nodeReady = workerNode.online() &&
+                    ("Available".equalsIgnoreCase(workerNode.status()) ||
+                     (workerNode.activeJobId() != null && jobs.containsKey(workerNode.activeJobId()) && jobs.get(workerNode.activeJobId()).status() == JobStatus.SUSPENDED));
+
+            if (!nodeReady) {
                 return Optional.empty();
             }
 
@@ -315,6 +328,21 @@ public class JobService {
                 }
             }
 
+            // B-2: Check if there was a suspended job on this node that can now be resumed!
+            List<UUID> suspendedList = suspendedJobsByNode.get(nodeId);
+            if (suspendedList != null && !suspendedList.isEmpty()) {
+                UUID jobToResumeId = suspendedList.remove(suspendedList.size() - 1);
+                Job suspended = jobs.get(jobToResumeId);
+                if (suspended != null && suspended.status() == JobStatus.SUSPENDED) {
+                    Job resumed = suspended.withResumed();
+                    jobs.put(resumed.jobId(), resumed);
+                    persistJob(resumed);
+                    pendingResumes.put(nodeId, jobToResumeId);
+                    log.info("B-2 RESUME: Resuming previously suspended job {} on node {} after high-priority completion",
+                            jobToResumeId, nodeId);
+                }
+            }
+
             nodeService.setNodeAvailable(nodeId);
             return true;
         } finally {
@@ -432,5 +460,79 @@ public class JobService {
     public List<TelemetryDataPoint> getTelemetry(UUID jobId) {
         if (jobId == null) return List.of();
         return telemetryStore.getOrDefault(jobId, List.of());
+    }
+
+    // B-2: Process Preemption Engine
+    public void checkForPreemption() {
+        schedulingLock.lock();
+        try {
+            // Find queued jobs with priority = 3 (HIGH)
+            List<Job> urgentJobs = jobs.values().stream()
+                    .filter(j -> j.status() == JobStatus.QUEUED && j.priority() == 3)
+                    .sorted(Comparator.comparing(Job::submittedAt))
+                    .toList();
+
+            for (Job urgentJob : urgentJobs) {
+                // Can any currently available online node execute this urgent job?
+                boolean canRunOnIdleNode = nodeService.findAll().stream()
+                        .filter(n -> n.online() && "Available".equalsIgnoreCase(n.status()) && n.activeJobId() == null)
+                        .filter(n -> !("PYTHON".equalsIgnoreCase(urgentJob.language()) && !n.pythonAvailable()))
+                        .filter(n -> !("JAVA".equalsIgnoreCase(urgentJob.language()) && !n.javaAvailable()))
+                        .anyMatch(n -> urgentJob.cpuCores() <= n.cores() && (urgentJob.memoryMb() <= n.memoryGb() * 1024L));
+
+                if (canRunOnIdleNode) {
+                    continue; // An idle node exists that can run this urgent job; no preemption needed
+                }
+
+                // No idle node can run this urgent job.
+                // Find a busy node running a LOWER priority job (priority < 3) that CAN fit this urgent job:
+                Optional<Job> candidateVictim = jobs.values().stream()
+                        .filter(j -> j.status() == JobStatus.RUNNING && j.priority() < urgentJob.priority())
+                        .filter(j -> {
+                            if (j.assignedNodeId() == null) return false;
+                            Optional<ClusterNode> nOpt = nodeService.findById(j.assignedNodeId());
+                            if (nOpt.isEmpty() || !nOpt.get().online()) return false;
+                            ClusterNode n = nOpt.get();
+                            return urgentJob.cpuCores() <= n.cores() && (urgentJob.memoryMb() <= n.memoryGb() * 1024L);
+                        })
+                        .min(Comparator.comparingInt(Job::priority).thenComparing(Job::submittedAt));
+
+                if (candidateVictim.isPresent()) {
+                    Job victim = candidateVictim.get();
+                    String targetNodeId = victim.assignedNodeId();
+
+                    log.warn("B-2 PREEMPTION: High-priority job {} preempts running job {} on node {}",
+                            urgentJob.jobId(), victim.jobId(), targetNodeId);
+
+                    Job suspendedVictim = victim.withSuspended();
+                    jobs.put(victim.jobId(), suspendedVictim);
+                    persistJob(suspendedVictim);
+
+                    if (targetNodeId != null) {
+                        suspendedJobsByNode.computeIfAbsent(targetNodeId, k -> new CopyOnWriteArrayList<>()).add(victim.jobId());
+                        nodeService.setNodeAvailable(targetNodeId);
+                    }
+                }
+            }
+        } finally {
+            schedulingLock.unlock();
+        }
+    }
+
+    public UUID checkPendingResume(String nodeId) {
+        if (nodeId == null) return null;
+        return pendingResumes.remove(nodeId);
+    }
+
+    public List<UUID> getSuspendedJobs(String nodeId) {
+        if (nodeId == null) return List.of();
+        return suspendedJobsByNode.getOrDefault(nodeId, List.of());
+    }
+
+    public void clearAllJobs() {
+        jobs.clear();
+        telemetryStore.clear();
+        suspendedJobsByNode.clear();
+        pendingResumes.clear();
     }
 }

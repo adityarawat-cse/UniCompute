@@ -14,4 +14,12 @@ public record WorkerHeartbeatResponse(
     public static WorkerHeartbeatResponse cancel(String status, UUID jobId) {
         return new WorkerHeartbeatResponse(status, "CANCEL_JOB", jobId);
     }
+
+    public static WorkerHeartbeatResponse pause(String status, UUID jobId) {
+        return new WorkerHeartbeatResponse(status, "PAUSE_JOB", jobId);
+    }
+
+    public static WorkerHeartbeatResponse resume(String status, UUID jobId) {
+        return new WorkerHeartbeatResponse(status, "RESUME_JOB", jobId);
+    }
 }

@@ -190,4 +190,24 @@ public record Job(
                 null, null, null, null, retryCount + 1, userId
         );
     }
+
+    public Job withSuspended() {
+        return new Job(
+                jobId, jobName, language, sourceCode, cpuCores, memoryMb, storageMb,
+                maxExecutionTimeSeconds, priority, schedulingAlgorithm,
+                JobStatus.SUSPENDED, submittedAt, assignedNodeId, assignedNodeName, assignedAt,
+                startedAt, completedAt, leaseExpiresAt, executionDurationMs,
+                stdout, stderr, exitCode, "Suspended by preemption for higher priority workload.", retryCount, userId
+        );
+    }
+
+    public Job withResumed() {
+        return new Job(
+                jobId, jobName, language, sourceCode, cpuCores, memoryMb, storageMb,
+                maxExecutionTimeSeconds, priority, schedulingAlgorithm,
+                JobStatus.RUNNING, submittedAt, assignedNodeId, assignedNodeName, assignedAt,
+                startedAt, completedAt, leaseExpiresAt, executionDurationMs,
+                stdout, stderr, exitCode, null, retryCount, userId
+        );
+    }
 }
