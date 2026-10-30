@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
@@ -22,8 +23,10 @@ import edu.unicompute.api.persistence.repository.JobExecutionRepository;
 import edu.unicompute.api.persistence.repository.JobRepository;
 import edu.unicompute.api.users.UserResponse;
 import edu.unicompute.api.users.UserService;
+import edu.unicompute.api.worker.TelemetryDataPoint;
 import edu.unicompute.api.worker.WorkerJobManifest;
 import edu.unicompute.api.worker.WorkerResultRequest;
+import edu.unicompute.api.worker.WorkerTelemetryRequest;
 
 @Service
 public class JobService {
@@ -31,6 +34,7 @@ public class JobService {
     private static final Logger log = LoggerFactory.getLogger(JobService.class);
 
     private final Map<UUID, Job> jobs = new ConcurrentHashMap<>();
+    private final Map<UUID, List<TelemetryDataPoint>> telemetryStore = new ConcurrentHashMap<>();
     private final NodeService nodeService;
     private final JobRepository jobRepository;
     private final JobExecutionRepository executionRepository;
@@ -404,5 +408,29 @@ public class JobService {
                 }
             }
         }
+    }
+
+    // B-8: Synchronized Per-Process Telemetry Stream
+    public void recordTelemetry(UUID jobId, String nodeId, WorkerTelemetryRequest req) {
+        if (jobId == null || req == null) return;
+        TelemetryDataPoint point = new TelemetryDataPoint(
+                jobId,
+                nodeId,
+                Instant.now().toString(),
+                req.cpuUsagePercent(),
+                req.memoryMb(),
+                req.activeThreads() > 0 ? req.activeThreads() : 1,
+                req.elapsedMs()
+        );
+        telemetryStore.computeIfAbsent(jobId, k -> new CopyOnWriteArrayList<>()).add(point);
+        List<TelemetryDataPoint> list = telemetryStore.get(jobId);
+        if (list.size() > 100) {
+            list.remove(0);
+        }
+    }
+
+    public List<TelemetryDataPoint> getTelemetry(UUID jobId) {
+        if (jobId == null) return List.of();
+        return telemetryStore.getOrDefault(jobId, List.of());
     }
 }

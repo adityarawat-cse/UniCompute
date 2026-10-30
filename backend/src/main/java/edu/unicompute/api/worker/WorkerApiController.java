@@ -133,4 +133,24 @@ public class WorkerApiController {
             return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
     }
+
+    @PostMapping("/api/worker/telemetry")
+    public ResponseEntity<Void> reportTelemetry(
+            @RequestHeader(value = "X-Node-Token", required = false) String token,
+            @RequestBody WorkerTelemetryRequest req) {
+
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        Optional<ClusterNode> nodeOpt = nodeService.findByToken(token);
+        if (nodeOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        if (req != null && req.jobId() != null) {
+            jobService.recordTelemetry(req.jobId(), nodeOpt.get().id(), req);
+        }
+        return ResponseEntity.ok().build();
+    }
 }

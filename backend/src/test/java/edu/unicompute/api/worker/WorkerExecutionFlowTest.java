@@ -364,4 +364,49 @@ class WorkerExecutionFlowTest {
         );
         assertThrows(IllegalArgumentException.class, () -> jobService.submit(reqHuge));
     }
+
+    @Test
+    @DisplayName("B-8 Telemetry: Worker streams hardware process metrics -> stored and retrievable via API")
+    void testSynchronizedProcessTelemetry() {
+        JobSubmissionRequest submitReq = new JobSubmissionRequest(
+                "TelemetryProfilingJob",
+                "PYTHON",
+                "import time\ntime.sleep(2)",
+                2,
+                1024,
+                200,
+                30,
+                2,
+                "FCFS"
+        );
+        Job submitted = jobService.submit(submitReq);
+
+        // Worker reports live telemetry sample points
+        WorkerTelemetryRequest telem1 = new WorkerTelemetryRequest(
+                submitted.jobId(),
+                35.5,
+                320.0,
+                4,
+                1000L
+        );
+        ResponseEntity<Void> postResp = workerApiController.reportTelemetry(workerToken, telem1);
+        assertEquals(HttpStatus.OK, postResp.getStatusCode());
+
+        WorkerTelemetryRequest telem2 = new WorkerTelemetryRequest(
+                submitted.jobId(),
+                78.2,
+                640.0,
+                8,
+                2000L
+        );
+        workerApiController.reportTelemetry(workerToken, telem2);
+
+        // Retrieve telemetry via JobService
+        var points = jobService.getTelemetry(submitted.jobId());
+        assertEquals(2, points.size());
+        assertEquals(35.5, points.get(0).cpuUsagePercent());
+        assertEquals(320.0, points.get(0).memoryMb());
+        assertEquals(78.2, points.get(1).cpuUsagePercent());
+        assertEquals(640.0, points.get(1).memoryMb());
+    }
 }

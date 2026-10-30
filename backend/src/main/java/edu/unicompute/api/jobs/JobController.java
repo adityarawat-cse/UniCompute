@@ -58,4 +58,9 @@ public class JobController {
         }
         return ResponseEntity.ok(jobService.findById(id).orElseThrow());
     }
+
+    @GetMapping("/api/jobs/{id}/telemetry")
+    public ResponseEntity<List<edu.unicompute.api.worker.TelemetryDataPoint>> getJobTelemetry(@PathVariable UUID id) {
+        return ResponseEntity.ok(jobService.getTelemetry(id));
+    }
 }
