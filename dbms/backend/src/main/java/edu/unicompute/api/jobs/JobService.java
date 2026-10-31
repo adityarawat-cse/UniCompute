@@ -20,6 +20,7 @@ import edu.unicompute.api.persistence.entity.JobEntity;
 import edu.unicompute.api.persistence.entity.JobExecutionEntity;
 import edu.unicompute.api.persistence.repository.JobExecutionRepository;
 import edu.unicompute.api.persistence.repository.JobRepository;
+import edu.unicompute.api.users.UserService;
 import edu.unicompute.api.worker.WorkerJobManifest;
 import edu.unicompute.api.worker.WorkerResultRequest;
 
@@ -32,21 +33,24 @@ public class JobService {
     private final NodeService nodeService;
     private final JobRepository jobRepository;
     private final JobExecutionRepository executionRepository;
+    private final UserService userService;
     private final ReentrantLock schedulingLock = new ReentrantLock();
 
     @Autowired
     public JobService(
             NodeService nodeService,
             @Autowired(required = false) JobRepository jobRepository,
-            @Autowired(required = false) JobExecutionRepository executionRepository) {
+            @Autowired(required = false) JobExecutionRepository executionRepository,
+            @Autowired(required = false) UserService userService) {
         this.nodeService = nodeService;
         this.jobRepository = jobRepository;
         this.executionRepository = executionRepository;
+        this.userService = userService;
         initFromDatabase();
     }
 
     public JobService(NodeService nodeService) {
-        this(nodeService, null, null);
+        this(nodeService, null, null, null);
     }
 
     private void initFromDatabase() {
@@ -64,8 +68,8 @@ public class JobService {
                         if (executionRepository != null) {
                             Optional<JobExecutionEntity> exec = executionRepository.findTopByJobIdOrderByExecutedAtDesc(entity.getJobId());
                             if (exec.isPresent()) {
-                                stdout = exec.get().getStdout();
-                                stderr = exec.get().getStderr();
+                                stdout = exec.get().getStdout() != null ? exec.get().getStdout() : "";
+                                stderr = exec.get().getStderr() != null ? exec.get().getStderr() : "";
                                 exitCode = exec.get().getExitCode();
                                 errMsg = exec.get().getErrorMessage();
                                 duration = exec.get().getDurationMs();
@@ -78,7 +82,7 @@ public class JobService {
                         log.warn("Could not deserialize persisted job {}: {}", entity.getJobId(), e.getMessage());
                     }
                 }
-                log.info("Initialized {} jobs from MySQL database.", jobs.size());
+                log.info("Initialized {} jobs with execution logs from MySQL database.", jobs.size());
             } catch (Exception e) {
                 log.warn("Database initialization skipped or unavailable: {}", e.getMessage());
             }
@@ -88,7 +92,8 @@ public class JobService {
     private void persistJob(Job job) {
         if (jobRepository != null && job != null) {
             try {
-                jobRepository.save(JobEntity.fromDomain(job));
+                JobEntity entity = JobEntity.fromDomain(job);
+                jobRepository.save(entity);
             } catch (Exception e) {
                 log.error("Failed to persist job {} to database: {}", job.jobId(), e.getMessage());
             }
@@ -254,8 +259,21 @@ public class JobService {
                     exec.setStderr(err);
                     exec.setErrorMessage("COMPLETED".equalsIgnoreCase(req.status()) && exitCode == 0 ? null : finished.errorMessage());
                     executionRepository.save(exec);
+                    log.info("Persisted execution log for job {} with exitCode={}", job.jobId(), exitCode);
                 } catch (Exception e) {
                     log.error("Failed to record execution entity for job {}: {}", job.jobId(), e.getMessage());
+                }
+            }
+
+            // Track user quota if UserService is active
+            if (userService != null && duration > 0) {
+                int durationSeconds = (int) Math.ceil(duration / 1000.0);
+                if (jobRepository != null) {
+                    jobRepository.findById(job.jobId().toString()).ifPresent(entity -> {
+                        if (entity.getUserId() != null) {
+                            userService.recordUsage(entity.getUserId(), durationSeconds);
+                        }
+                    });
                 }
             }
 
@@ -277,6 +295,22 @@ public class JobService {
             Job cancelled = job.withCancelled();
             jobs.put(jobId, cancelled);
             persistJob(cancelled);
+
+            if (executionRepository != null) {
+                try {
+                    JobExecutionEntity exec = new JobExecutionEntity();
+                    exec.setJobId(job.jobId().toString());
+                    exec.setServerId(job.assignedNodeId());
+                    exec.setExitCode(-1);
+                    exec.setDurationMs(0L);
+                    exec.setStdout("");
+                    exec.setStderr("Job was cancelled by user.");
+                    exec.setErrorMessage("Job cancelled by user.");
+                    executionRepository.save(exec);
+                } catch (Exception e) {
+                    log.error("Failed to record cancellation execution for job {}: {}", job.jobId(), e.getMessage());
+                }
+            }
 
             if (job.assignedNodeId() != null) {
                 nodeService.setNodeAvailable(job.assignedNodeId());
@@ -303,6 +337,22 @@ public class JobService {
                             Job failed = current.withFailed(0, -1, "", "", "Worker node failed to acknowledge job within 30s lease.");
                             jobs.put(failed.jobId(), failed);
                             persistJob(failed);
+
+                            if (executionRepository != null) {
+                                try {
+                                    JobExecutionEntity exec = new JobExecutionEntity();
+                                    exec.setJobId(current.jobId().toString());
+                                    exec.setServerId(current.assignedNodeId());
+                                    exec.setExitCode(-1);
+                                    exec.setDurationMs(0L);
+                                    exec.setStdout("");
+                                    exec.setStderr("Worker node failed to acknowledge job within 30s lease.");
+                                    exec.setErrorMessage("Worker node failed to acknowledge job within 30s lease.");
+                                    executionRepository.save(exec);
+                                } catch (Exception e) {
+                                    log.error("Failed to record timeout execution for job {}: {}", current.jobId(), e.getMessage());
+                                }
+                            }
                         }
                         if (current.assignedNodeId() != null) {
                             nodeService.setNodeAvailable(current.assignedNodeId());
