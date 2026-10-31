@@ -154,3 +154,4 @@ public class EndToEndRestartTest {
         assertEquals(testEmail, authenticated.get().email());
     }
 }
+
