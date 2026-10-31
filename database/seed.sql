@@ -6,14 +6,20 @@
 USE `unicompute_db`;
 
 -- 1. Initial Users (Matching App.jsx credentials & system accounts)
-INSERT INTO `users` (`user_id`, `username`, `email`, `password_hash`, `full_name`, `role`, `status`, `department`)
+INSERT INTO `users` (
+    `user_id`, `username`, `email`, `password_hash`, `full_name`, 
+    `role`, `status`, `department`, `daily_quota_seconds`, `used_quota_seconds`, `quota_reset_at`
+)
 VALUES 
-    (1, 'admin', 'admin@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'System Administrator', 'ADMIN', 'ACTIVE', 'Information Technology'),
-    (2, 'aditya', 'aditya@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Aditya Rawat (Admin)', 'ADMIN', 'ACTIVE', 'Computer Science & Engineering'),
-    (3, 'student', 'student@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Student Researcher', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering'),
-    (4, 'dr_sharma', 'asharma@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Dr. Alok Sharma', 'RESEARCHER', 'ACTIVE', 'Computer Science & Engineering'),
-    (5, 'gungun', 'gsaini@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Gungun Saini', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering')
-ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
+    (1, 'admin', 'admin@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'System Administrator', 'ADMIN', 'ACTIVE', 'Information Technology', 10000, 0, CURRENT_TIMESTAMP),
+    (2, 'aditya', 'aditya@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Aditya Rawat (Admin)', 'ADMIN', 'ACTIVE', 'Computer Science & Engineering', 10000, 0, CURRENT_TIMESTAMP),
+    (3, 'student', 'student@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Student Researcher', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering', 1200, 0, CURRENT_TIMESTAMP),
+    (4, 'dr_sharma', 'asharma@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Dr. Alok Sharma', 'RESEARCHER', 'ACTIVE', 'Computer Science & Engineering', 7200, 0, CURRENT_TIMESTAMP),
+    (5, 'gungun', 'gsaini@unicompute.edu', '$2a$12$e8wF3Qv70k2w8uPqIu9hge0B8m0bA2N8w6.0XyZ10MKnqW7s0gYl2', 'Gungun Saini', 'STUDENT', 'ACTIVE', 'Computer Science & Engineering', 3600, 0, CURRENT_TIMESTAMP)
+ON DUPLICATE KEY UPDATE 
+    `username` = VALUES(`username`),
+    `daily_quota_seconds` = VALUES(`daily_quota_seconds`),
+    `used_quota_seconds` = VALUES(`used_quota_seconds`);
 
 -- 2. Initial Academic/Research Projects
 INSERT INTO `projects` (`project_id`, `project_code`, `title`, `description`, `owner_user_id`, `department`, `status`)
@@ -47,6 +53,8 @@ VALUES
 ON DUPLICATE KEY UPDATE `max_concurrent_jobs` = VALUES(`max_concurrent_jobs`);
 
 -- 6. Sample Initial Job Records (Matching Spring Boot UUID structure & runtimes)
+-- Priority tiers: 1 = Low, 2 = Normal, 3 = High
+-- Algorithm: AUTO
 INSERT INTO `jobs` (
     `job_id`, `job_name`, `language`, `source_code`, 
     `cpu_cores`, `memory_mb`, `storage_mb`, `max_execution_time_seconds`, 
@@ -63,8 +71,8 @@ VALUES
     1024,
     2048,
     300,
-    5,
-    'Priority',
+    2,
+    'AUTO',
     'COMPLETED',
     3,
     2,
@@ -81,8 +89,8 @@ VALUES
     1024,
     2048,
     300,
-    5,
-    'Priority',
+    3,
+    'AUTO',
     'COMPLETED',
     2,
     1,

@@ -37,6 +37,9 @@ CREATE TABLE `users` (
     `role` ENUM('ADMIN', 'RESEARCHER', 'STUDENT', 'GUEST') NOT NULL DEFAULT 'STUDENT',
     `status` ENUM('ACTIVE', 'SUSPENDED', 'PENDING') NOT NULL DEFAULT 'ACTIVE',
     `department` VARCHAR(100) NULL,
+    `daily_quota_seconds` INT NOT NULL DEFAULT 3600 COMMENT 'Daily runtime allowance in seconds',
+    `used_quota_seconds` INT NOT NULL DEFAULT 0 COMMENT 'Total runtime consumed today',
+    `quota_reset_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Timestamp when quota resets (24h rolling)',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_users_role` (`role`),
@@ -121,9 +124,9 @@ CREATE TABLE `jobs` (
     `memory_mb` INT NOT NULL DEFAULT 512,
     `storage_mb` INT NOT NULL DEFAULT 1024,
     `max_execution_time_seconds` INT NOT NULL DEFAULT 60,
-    `priority` INT NOT NULL DEFAULT 1,
-    `scheduling_algorithm` VARCHAR(50) NOT NULL DEFAULT 'Priority',
-    `status` ENUM('QUEUED', 'ASSIGNED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED') NOT NULL DEFAULT 'QUEUED',
+    `priority` INT NOT NULL DEFAULT 2 COMMENT '1 = Low (0.5x quota), 2 = Normal (1.0x quota), 3 = High (2.0x quota preemption)',
+    `scheduling_algorithm` VARCHAR(50) NOT NULL DEFAULT 'AUTO',
+    `status` ENUM('QUEUED', 'ASSIGNED', 'RUNNING', 'SUSPENDED', 'COMPLETED', 'FAILED', 'CANCELLED') NOT NULL DEFAULT 'QUEUED',
     `user_id` BIGINT NULL,
     `project_id` BIGINT NULL,
     `assigned_server_id` VARCHAR(64) NULL,
@@ -145,9 +148,9 @@ CREATE TABLE `jobs` (
         ON DELETE SET NULL ON UPDATE CASCADE,
     -- Fast index for scheduler queue matching: status=QUEUED, order by priority DESC, submitted_at ASC
     INDEX `idx_jobs_queue_scheduling` (`status`, `priority` DESC, `submitted_at` ASC),
+    INDEX `idx_jobs_user_status` (`user_id`, `status`),
     INDEX `idx_jobs_assigned_server` (`assigned_server_id`, `status`),
-    INDEX `idx_jobs_lease_expiry` (`status`, `lease_expires_at`),
-    INDEX `idx_jobs_user_status` (`user_id`, `status`)
+    INDEX `idx_jobs_lease_expiry` (`status`, `lease_expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
